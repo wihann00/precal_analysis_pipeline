@@ -1,0 +1,362 @@
+# HyperK DAQ Control System .gitignore
+
+# ============================================================================
+# Python
+# ============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+.pdm.toml
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+# NOTE: Keeping venvs in repo as you requested
+.env
+.venv
+env/
+venv/
+venv32/
+ENV/
+env.bak/
+venv.bak/
+precal_env/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# ============================================================================
+# IDEs and Editors
+# ============================================================================
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# vim
+*.swp
+*.swo
+*~
+.*.sw[a-z]
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+
+# ============================================================================
+# Operating Systems
+# ============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ============================================================================
+# DAQ-Specific Files
+# ============================================================================
+
+# WaveDump temporary files
+wave*.txt
+wave*.dat
+WaveDumpConfig.txt
+# Keep template but ignore generated config
+!WaveDumpConfig_template.txt
+!**/configs/WaveDumpConfig_template.txt
+!**/configs/wavedumpconfig_template.txt
+
+# WaveDump saved data (don't commit large datasets)
+WaveDumpSaves/
+WaveDump_Saves/
+**/WaveDumpSaves/
+**/WaveDump_Saves/
+
+# CAEN temporary files
+*.bin
+*.log
+
+# Data files
+*.hdf5
+*.h5
+*.root
+
+# ============================================================================
+# Configuration Files with Sensitive Info
+# ============================================================================
+
+# Device connection configs with IPs/passwords
+# *_config_local.txt
+# secrets.json
+# credentials.yaml
+
+# Keep example configs
+!*_config_example.txt
+!example_config.*
+
+# ============================================================================
+# Logs
+# ============================================================================
+
+# General log files
+*.log
+logs/
+*.log.*
+log_*.txt
+run_log.txt
+
+# Device-specific logs
+device_server.log
+digitizer.log
+robot.log
+caen*.log
+
+# ============================================================================
+# Temporary Files
+# ============================================================================
+
+# General temp files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*_old.*
+*_backup.*
+
+# Test outputs
+test_output/
+temp_test/
+scratch/
+
+# ============================================================================
+# Documentation Build
+# ============================================================================
+
+# Sphinx
+_build/
+_static/
+_templates/
+
+# MkDocs
+site/
+
+# ============================================================================
+# Project-Specific
+# ============================================================================
+
+# xArm SDK - if you want to keep it in the repo, uncomment this
+# Otherwise, let git track it
+# linux/xArm-Python-SDK/
+
+# Compiled laser DLL (don't commit binaries)
+*.dll
+!tmHIDLD.dll  # Unless you want to track this specific one
+
+# CAENComm/CAENVME libraries (don't commit large binaries)
+*.a
+*.lib
+
+# Module signing keys (SECURITY - never commit these!)
+*.priv
+*.der
+MOK.priv
+MOK.der
+module-signing/
+
+# Generated documentation
+docs/html/
+docs/latex/
+
+# ============================================================================
+# Custom Ignore Patterns
+# ============================================================================
+
+# Add your custom patterns here
+# Example:
+# my_test_scripts/
+# personal_notes.txt
+
+# Scratch/test directories
+scratch/
+test_temp/
+experiments/
+
+# Personal notes (if you take notes in the repo)
+NOTES.md
+TODO_personal.md
+notes/
+
+# ============================================================================
+# IMPORTANT: Things to KEEP (not ignore)
+# ============================================================================
+
+# Config templates
+!**/configs/*_template.*
+!**/configs/*.template
+
+# Example configs
+!**/*_example.*
+!**/example_*
+
+# Documentation
+!docs/
+!*.md
+!README*.md
+
+# Requirements files
+!requirements*.txt
+
+# Virtual environments (as you requested)
+# venv/
+# venv32/
+# .venv/
+
+# Source code
+!**/*.py
+
+# Scripts
+!sourceatstart.sh
+!**/*.sh

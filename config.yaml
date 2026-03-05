@@ -1,0 +1,60 @@
+# =============================================================================
+# PMT Pre-Calibration Analysis Configuration
+# =============================================================================
+# Edit this file to configure a new analysis run.
+# Then execute: python run_analysis.py --config config.yaml
+
+# --- Run identification -------------------------------------------------------
+run_id: "260204_225940"
+data_dir: "/data/projects/punim0011/wihann/Deployment/data/rootfiles"
+output_dir: "/data/projects/punim0011/wihann/Deployment/analysis/output"
+
+# --- Channel mapping ----------------------------------------------------------
+# CH0 = laser trigger / sig gen (always)
+# CH1 = SiPM (always)
+# CH2 = PMT1, CH3 = PMT2 (select one)
+# CH4 = monitor PMT (always)
+pmt_channel: 2            # 2 for PMT1, 3 for PMT2
+sample_to_ns: 2           # digitizer sample → ns conversion factor
+
+# --- Scan geometry ------------------------------------------------------------
+scan:
+  zeniths: [0, 10, 20, 30, 40, 50]
+  azimuths: [0, 90, 180, 270]
+
+# --- Timing analysis ----------------------------------------------------------
+timing:
+  pmt:
+    fit_range: [300, 330]       # ns window for PMT–laser timing distribution
+    include_background: true
+    nbins: 50
+  sipm:
+    fit_range: [95, 105]        # ns window for SiPM–laser timing distribution
+    include_background: true
+    nbins: 50
+  # Background estimation sidebands (in units of the window width)
+  sideband_multiplier: 2        # left sideband = [xr[0] - 2*width, xr[0] - width]
+
+# --- Charge / Gain analysis ---------------------------------------------------
+charge:
+  enabled: false                # set true when pyrate supports simultaneous PulseStart + Charge
+  fit_range: [1.5, 5.0]        # pC
+  timing_cut: [300, 320]       # ns — only use events in this timing window
+  npe: 2                       # number of photoelectron peaks to fit (1, 2, or 3)
+  include_pedestal: true
+  include_underamplified: false
+  include_backscatter: false
+  nbins: 50
+
+# --- Monitor PMT --------------------------------------------------------------
+monitor:
+  enabled: true                 # track laser stability via monitor PMT yield
+  fit_range: [300, 330]         # ns — same basis as PMT timing window (adjust if needed)
+
+# --- Plotting -----------------------------------------------------------------
+plotting:
+  save_fit_plots: true
+  save_cross_sections: true
+  save_heatmap: true
+  figure_format: "png"
+  dpi: 150

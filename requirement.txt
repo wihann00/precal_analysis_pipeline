@@ -1,0 +1,51 @@
+# =============================================================================
+# PMT Pre-Calibration Analysis Pipeline — Requirements
+# =============================================================================
+# Tested with Python 3.10.4
+#
+# Setup:
+#   python -m venv precal_env
+#   source precal_env/bin/activate
+#   pip install --upgrade pip
+#   pip install -r requirements.txt
+#
+# NOTE: Install order matters for the TF/protobuf dependency chain.
+#       pip should resolve it correctly from this file, but if you hit
+#       the 'MessageFactory' / 'GetPrototype' AttributeError, run:
+#           pip install protobuf==4.25.6
+#       to force the compatible version.
+# =============================================================================
+
+# --- Core scientific stack ---------------------------------------------------
+numpy>=1.23,<2.0            # numpy 2.0 breaks many things; stay on 1.x
+scipy>=1.10,<1.15
+pandas>=1.5,<2.3
+awkward-pandas>=2023.8.0
+
+# --- TensorFlow + zfit fitting stack -----------------------------------------
+# TF 2.16 is the sweet spot: compatible with zfit >=0.24, Python 3.10,
+# and doesn't have the protobuf 5.x/6.x GetPrototype bug.
+tensorflow==2.16.2
+protobuf>=4.25,<5.0         # TF 2.16 needs protobuf 4.x; 5.x+ causes crashes
+
+# TF 2.16+ uses Keras 3 by default, but TFP needs Keras 2
+tf-keras>=2.16,<2.17
+tensorflow-probability==0.24.0  # tested against TF 2.16.1
+gast>=0.5                       # TF dependency sometimes missed by pip
+
+# zfit and minimizer
+zfit>=0.24,<0.29
+iminuit>=2.25               # Minuit backend for zfit
+
+# --- ROOT file I/O -----------------------------------------------------------
+uproot>=5.3,<6.0            # pure-Python ROOT file reader
+awkward>=2.6,<3.0           # required by uproot for jagged arrays
+
+# --- Plotting ----------------------------------------------------------------
+matplotlib>=3.7,<4.0
+
+# --- Configuration -----------------------------------------------------------
+pyyaml>=6.0
+
+# --- Utilities ---------------------------------------------------------------
+tqdm>=4.65                  # progress bars
