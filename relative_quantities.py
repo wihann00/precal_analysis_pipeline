@@ -28,33 +28,31 @@ def _relative_to_centre(values: np.ndarray, errors: np.ndarray,
     Error propagation for ratio a/b:
         δ(a/b) = (a/b) × sqrt((δa/a)² + (δb/b)²)
     """
-    rel = values / centre_val
-    rel_err = rel * np.sqrt(
-        (errors / values)**2 + (centre_err / centre_val)**2
-    )
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rel = values / centre_val
+        rel_err = rel * np.sqrt(
+            (errors / values)**2 + (centre_err / centre_val)**2
+        )
     return rel, rel_err
 
 
-def _double_ratio(pmt_yield: np.ndarray, pmt_err: np.ndarray,
-                   sipm_yield: np.ndarray, sipm_err: np.ndarray,
-                   pmt_centre: float, pmt_centre_err: float,
-                   sipm_centre: float, sipm_centre_err: float):
+def _double_ratio(pmt_yield, pmt_err, sipm_yield, sipm_err,
+                   pmt_centre, pmt_centre_err,
+                   sipm_centre, sipm_centre_err):
     """
     Corrected relative detection efficiency via double ratio:
         ε_rel = (N_PMT / N_SiPM) / (N_PMT_centre / N_SiPM_centre)
-
-    This is equivalent to: (N_PMT/N_PMT_centre) / (N_SiPM/N_SiPM_centre)
-    i.e. the ratio of the two relative yields.
     """
     rel_pmt, rel_pmt_err = _relative_to_centre(pmt_yield, pmt_err,
                                                  pmt_centre, pmt_centre_err)
     rel_sipm, rel_sipm_err = _relative_to_centre(sipm_yield, sipm_err,
                                                    sipm_centre, sipm_centre_err)
 
-    ratio = rel_pmt / rel_sipm
-    ratio_err = ratio * np.sqrt(
-        (rel_pmt_err / rel_pmt)**2 + (rel_sipm_err / rel_sipm)**2
-    )
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = rel_pmt / rel_sipm
+        ratio_err = ratio * np.sqrt(
+            (rel_pmt_err / rel_pmt)**2 + (rel_sipm_err / rel_sipm)**2
+        )
 
     return ratio, ratio_err, rel_pmt, rel_pmt_err, rel_sipm, rel_sipm_err
 
@@ -66,21 +64,8 @@ def compute_relative_quantities(pmt_df: pd.DataFrame,
     """
     Compute all relative quantities normalised to the centre (first) scan point.
 
-    Parameters
-    ----------
-    pmt_df : DataFrame
-        PMT timing fit results (from timing_analysis).
-    sipm_df : DataFrame
-        SiPM timing fit results.
-    mon_df : DataFrame or None
-        Monitor timing fit results (for laser stability tracking).
-    charge_df : DataFrame or None
-        Charge fit results (for gain analysis).
-
-    Returns
-    -------
-    DataFrame
-        Combined results with all relative quantities.
+    DataFrames are aligned by the 'coord' column (tuple), so any length
+    mismatches between PMT, SiPM, and monitor are handled gracefully.
     """
     # Use first point as centre reference
     pmt_centre = pmt_df.iloc[0]
@@ -104,15 +89,14 @@ def compute_relative_quantities(pmt_df: pd.DataFrame,
     # --- Relative timing offset (transit time) -------------------------------
     tt = pmt_df["transit_time"].values
     tt_err = pmt_df["transit_time_err"].values
-    # Express as difference from centre rather than ratio (timing is additive)
     rel_tt = tt - tt[0]
     rel_tt_err = np.sqrt(tt_err**2 + tt_err[0]**2)
 
     # --- Relative TTS --------------------------------------------------------
     tts = pmt_df["tts_fwhm"].values
     tts_centre = tts[0]
-    rel_tts = tts / tts_centre
-    # Simple error estimate (no error on FWHM from fit, so just relative)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rel_tts = tts / tts_centre
     rel_tts_err = np.full_like(rel_tts, np.nan)
 
     # --- Build output DataFrame -----------------------------------------------
@@ -123,13 +107,17 @@ def compute_relative_quantities(pmt_df: pd.DataFrame,
         "pmt_sig_yield_err": pmt_sig_err,
         "sipm_sig_yield": sipm_sig,
         "sipm_sig_yield_err": sipm_sig_err,
+        "pmt_bkg_yield": pmt_df["bkg_yield"].values,
+        "pmt_bkg_yield_err": pmt_df["bkg_yield_err"].values,
         "pmt_transit_time": tt,
         "pmt_transit_time_err": tt_err,
         "pmt_tts_fwhm": tts,
         "pmt_mu": pmt_df["mu"].values,
         "pmt_mu_err": pmt_df["mu_err"].values,
         "pmt_sigma": pmt_df["sigma"].values,
+        "pmt_sigma_err": pmt_df["sigma_err"].values,
         "pmt_lambd": pmt_df["lambd"].values,
+        "pmt_lambd_err": pmt_df["lambd_err"].values,
         # Relative quantities
         "rel_pmt_yield": rel_pmt,
         "rel_pmt_yield_err": rel_pmt_err,
@@ -144,6 +132,7 @@ def compute_relative_quantities(pmt_df: pd.DataFrame,
     })
 
     # --- Monitor stability (if available) ------------------------------------
+    # Merge on coord to handle any length mismatch between monitor and PMT
     if mon_df is not None and not mon_df.empty:
         mon_sig = mon_df["sig_yield"].values
         mon_sig_err = mon_df["sig_yield_err"].values
@@ -153,18 +142,42 @@ def compute_relative_quantities(pmt_df: pd.DataFrame,
         rel_mon, rel_mon_err = _relative_to_centre(
             mon_sig, mon_sig_err, mon_centre, mon_centre_err
         )
-        out["mon_sig_yield"] = mon_sig
-        out["mon_sig_yield_err"] = mon_sig_err
-        out["rel_mon_yield"] = rel_mon
-        out["rel_mon_yield_err"] = rel_mon_err
+
+        mon_summary = pd.DataFrame({
+            "coord": mon_df["coord"].values,
+            "mon_sig_yield": mon_sig,
+            "mon_sig_yield_err": mon_sig_err,
+            "rel_mon_yield": rel_mon,
+            "rel_mon_yield_err": rel_mon_err,
+        })
+
+        # Convert coord columns to string for reliable merge
+        out["_coord_str"] = out["coord"].astype(str)
+        mon_summary["_coord_str"] = mon_summary["coord"].astype(str)
+        mon_summary = mon_summary.drop(columns=["coord"])
+
+        out = out.merge(mon_summary, on="_coord_str", how="left")
+        out = out.drop(columns=["_coord_str"])
 
     # --- Gain (if charge analysis available) ---------------------------------
     if charge_df is not None and not charge_df.empty:
         gains = charge_df["gain"].values
         gain_centre = gains[0]
-        rel_gain = gains / gain_centre
-        out["gain"] = gains
-        out["rel_gain"] = rel_gain
-        out["mu_spe"] = charge_df["mu_spe"].values
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rel_gain = gains / gain_centre
+
+        charge_summary = pd.DataFrame({
+            "coord": charge_df["coord"].values,
+            "gain": gains,
+            "rel_gain": rel_gain,
+            "mu_spe": charge_df["mu_spe"].values,
+        })
+
+        out["_coord_str"] = out["coord"].astype(str)
+        charge_summary["_coord_str"] = charge_summary["coord"].astype(str)
+        charge_summary = charge_summary.drop(columns=["coord"])
+
+        out = out.merge(charge_summary, on="_coord_str", how="left")
+        out = out.drop(columns=["_coord_str"])
 
     return out

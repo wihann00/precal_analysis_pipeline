@@ -1,11 +1,11 @@
 """
 timing_analysis.py
 ==================
-Fits timing offset distributions (PMT−laser, SiPM−laser, monitor−laser)
+Fits timing offset distributions (PMT-laser, SiPM-laser, monitor-laser)
 with an Exponentially Modified Gaussian + optional Chebyshev background.
 
-Extracts: timing offset (mu), TTS (FWHM), signal/background yields,
-and all associated uncertainties.
+Plots are generated inside the fit function while the zfit model is still
+in scope, so the fitted curve and pull distribution are properly overlaid.
 """
 
 import zfit
@@ -13,7 +13,9 @@ from zfit import z
 import zfit.z.numpy as znp
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from scipy.interpolate import UnivariateSpline
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, Tuple, List, Optional
 import logging
@@ -27,9 +29,8 @@ logger = logging.getLogger(__name__)
 class TimingFitResult:
     """Container for a single timing fit result."""
     coord: Tuple[float, float]
-    channel: str                # "PMT", "sipm", "mon"
+    channel: str
 
-    # Fit parameters
     mu: float
     mu_err: float
     sigma: float
@@ -37,54 +38,44 @@ class TimingFitResult:
     lambd: float
     lambd_err: float
 
-    # Derived quantities
-    transit_time: float         # mu + 1/lambda (sample mean of EMG)
+    transit_time: float
     transit_time_err: float
-    tts_fwhm: float             # FWHM of the fitted model
+    tts_fwhm: float
 
-    # Yields
     sig_yield: float
     sig_yield_err: float
     bkg_yield: float
     bkg_yield_err: float
     total_events: int
 
-    # Background sideband counts
     bkg_left: float
     bkg_right: float
 
-    # Fit quality
     converged: bool
-    coeff: float                # Chebyshev coefficient (if background included)
+    coeff: float
 
     def to_dict(self) -> dict:
-        """Convert to dictionary for DataFrame construction."""
         return {
-            "coord": self.coord,
-            "channel": self.channel,
-            "mu": self.mu,
-            "mu_err": self.mu_err,
-            "sigma": self.sigma,
-            "sigma_err": self.sigma_err,
-            "lambd": self.lambd,
-            "lambd_err": self.lambd_err,
-            "transit_time": self.transit_time,
-            "transit_time_err": self.transit_time_err,
+            "coord": self.coord, "channel": self.channel,
+            "mu": self.mu, "mu_err": self.mu_err,
+            "sigma": self.sigma, "sigma_err": self.sigma_err,
+            "lambd": self.lambd, "lambd_err": self.lambd_err,
+            "transit_time": self.transit_time, "transit_time_err": self.transit_time_err,
             "tts_fwhm": self.tts_fwhm,
-            "sig_yield": self.sig_yield,
-            "sig_yield_err": self.sig_yield_err,
-            "bkg_yield": self.bkg_yield,
-            "bkg_yield_err": self.bkg_yield_err,
+            "sig_yield": self.sig_yield, "sig_yield_err": self.sig_yield_err,
+            "bkg_yield": self.bkg_yield, "bkg_yield_err": self.bkg_yield_err,
             "total_events": self.total_events,
-            "bkg_left": self.bkg_left,
-            "bkg_right": self.bkg_right,
-            "converged": self.converged,
-            "coeff": self.coeff,
+            "bkg_left": self.bkg_left, "bkg_right": self.bkg_right,
+            "converged": self.converged, "coeff": self.coeff,
         }
 
 
-def _compute_fwhm(model, data, size: int, nbins: int = 50) -> float:
-    """Compute FWHM of a fitted model using spline root-finding."""
+# =============================================================================
+# Internal helpers
+# =============================================================================
+
+def _compute_fwhm(model, data, size, nbins=50):
+    """Compute FWHM of fitted model via spline root-finding."""
     lower, upper = data.data_range.limit1d
     x = np.linspace(lower, upper, 1000)
     y = model.pdf(x).numpy() * size / nbins * data.data_range.area()
@@ -97,7 +88,6 @@ def _compute_fwhm(model, data, size: int, nbins: int = 50) -> float:
     except Exception as e:
         logger.warning(f"FWHM computation failed: {e}")
 
-    # Fallback: estimate from half-max points directly
     half_max = np.max(y) / 2
     above = np.where(y >= half_max)[0]
     if len(above) > 1:
@@ -105,48 +95,133 @@ def _compute_fwhm(model, data, size: int, nbins: int = 50) -> float:
     return np.nan
 
 
-def _count_sideband(data_np: np.ndarray, xr: List[float],
-                    sideband_multiplier: float = 2) -> Tuple[float, float]:
-    """Count events in left and right sidebands for background estimation."""
-    width = xr[1] - xr[0]
-    xr_l = (xr[0] - sideband_multiplier * width, xr[0] - width)
-    xr_r = (xr[1] + width, xr[1] + sideband_multiplier * width)
-
-    n_left = np.sum((data_np >= xr_l[0]) & (data_np < xr_l[1]))
-    n_right = np.sum((data_np >= xr_r[0]) & (data_np < xr_r[1]))
-    return float(n_left), float(n_right)
-
-
-def fit_timing(coord: Tuple[float, float],
-               data_np: np.ndarray,
-               channel: str = "PMT",
-               xr: List[float] = None,
-               include_background: bool = True,
-               nbins: int = 50,
-               sideband_multiplier: float = 2) -> TimingFitResult:
+def _plot_fit_and_pull(model, comp_models, comp_names,
+                       data, data_np, size,
+                       coord, channel, xr, nbins,
+                       fit_params, fwhm_val,
+                       output_dir, run_id, fmt="png", dpi=150):
     """
-    Fit an EMG + optional Chebyshev background to a timing distribution.
+    Generate fit plot with:
+      - Data histogram with Poisson errors
+      - Total model curve (solid)
+      - Individual component curves (dashed)
+      - Pull distribution
+      - Parameter text box
 
-    Parameters
-    ----------
-    coord : tuple
-        (theta, phi) scan coordinate.
-    data_np : ndarray
-        Timing offset values (already filtered to the fit range).
-    channel : str
-        Channel identifier ("PMT", "sipm", "mon").
-    xr : list
-        [lower, upper] fit range in ns.
-    include_background : bool
-        Whether to include a Chebyshev background component.
-    nbins : int
-        Number of bins for plotting/FWHM calculation.
-    sideband_multiplier : float
-        Sideband width multiplier for background estimation.
+    Called from inside fit_timing() while the model is alive.
+    """
+    theta, phi = coord
+    fig, (ax1, ax2) = plt.subplots(2, 1, gridspec_kw={"height_ratios": [4, 1]},
+                                    figsize=(10, 10))
 
-    Returns
-    -------
-    TimingFitResult
+    # --- Data ---
+    counts, bin_edges = np.histogram(data_np, bins=nbins, range=xr)
+    bin_centres = 0.5 * (bin_edges[1:] + bin_edges[:-1])
+    ax1.errorbar(bin_centres, counts, yerr=np.sqrt(np.maximum(counts, 1)),
+                 fmt="ok", label="data")
+
+    # --- Total model curve ---
+    x_plot = np.linspace(xr[0], xr[1], 1000)
+    scale = size / nbins * data.data_range.area()
+    y_model = model.pdf(x_plot).numpy() * scale
+    ax1.plot(x_plot, y_model, linewidth=3, label="Total fit")
+
+    # --- Component curves (dashed) ---
+    if comp_models is not None:
+        for comp, name in zip(comp_models, comp_names):
+            y_comp = comp.pdf(x_plot).numpy() * scale
+            ax1.plot(x_plot, y_comp, "--", label=name)
+
+    ax1.legend(fontsize=14)
+
+    # --- Text box ---
+    textstr = "\n".join([
+        rf"$\mu = {fit_params['mu']:.2f}$",
+        rf"$\lambda = {fit_params['lambd']:.2f}$",
+        rf"$\sigma = {fit_params['sigma']:.2f}$",
+        f"sig yield = {fit_params['sig_yield']:.0f}",
+        f"bkg yield = {fit_params['bkg_yield']:.0f}",
+        f"FWHM = {fwhm_val:.2f}",
+    ])
+    props = dict(boxstyle="round", facecolor="white", alpha=0.5)
+    ax1.text(0.70, 0.95, textstr, transform=ax1.transAxes, fontsize=16,
+             verticalalignment="top", bbox=props)
+
+    ax1.set_ylabel("Events", fontsize=16)
+    ax1.set_xlim(xr)
+    ax1.set_title(f"{channel} ({theta}, {phi})", fontsize=16)
+
+    # --- Pull ---
+    y_exp = model.pdf(bin_centres).numpy() * scale
+    with np.errstate(divide="ignore", invalid="ignore"):
+        pull = np.where(counts > 0, (counts - y_exp) / np.sqrt(counts), 0)
+
+    ax2.axhline(0, ls="--", color="black")
+    ax2.errorbar(bin_centres, pull, fmt="ok")
+    ax2.set_ylabel("Pull", fontsize=12)
+    ax2.set_xlim(xr)
+    ax2.set_ylim([-5, 5])
+    ax2.set_yticks([-5, 0, 5])
+    ax2.set_xlabel("Time (ns)", fontsize=16)
+
+    for ax in [ax1, ax2]:
+        for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                     ax.get_xticklabels() + ax.get_yticklabels()):
+            item.set_fontsize(16)
+
+    fig.tight_layout()
+    outpath = Path(output_dir) / "figures" / "timing_fits" / run_id
+    outpath.mkdir(parents=True, exist_ok=True)
+    fig.savefig(outpath / f"{channel}_theta{theta}_phi{phi}.{fmt}", dpi=dpi)
+    plt.close(fig)
+
+
+def _plot_fwhm(model, data, size, coord, channel, nbins, fwhm_val,
+               output_dir, run_id, fmt="png", dpi=150):
+    """Generate standalone FWHM visualisation plot."""
+    theta, phi = coord
+    lower, upper = data.data_range.limit1d
+    x = np.linspace(lower, upper, 1000)
+    y = model.pdf(x).numpy() * size / nbins * data.data_range.area()
+
+    colours = ['#173F5F', '#20639B', '#3CAEA3', '#F6D55C', '#ED553B']
+
+    try:
+        spline = UnivariateSpline(x, y - np.max(y) / 2, s=0)
+        roots = spline.roots()
+        if len(roots) < 2:
+            return
+        r1, r2 = roots[0], roots[-1]
+    except Exception:
+        return
+
+    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+    ax.plot(x, y, color=colours[0])
+    ax.axvspan(r1, r2, facecolor=colours[4], alpha=0.75,
+               label=f"r1={r1:.2f}; r2={r2:.2f}\nFWHM={fwhm_val:.2f}")
+    ax.legend(fontsize=14)
+    ax.set_ylim(0, np.max(y) * 1.1)
+    ax.set_title(f"{channel} ({theta}, {phi})", fontsize=14)
+    ax.set_xlabel("Time (ns)", fontsize=14)
+    fig.tight_layout()
+
+    outpath = Path(output_dir) / "figures" / "FWHM" / run_id
+    outpath.mkdir(parents=True, exist_ok=True)
+    fig.savefig(outpath / f"{channel}_theta{theta}_phi{phi}_FWHM.{fmt}", dpi=dpi)
+    plt.close(fig)
+
+
+# =============================================================================
+# Main fit function
+# =============================================================================
+
+def fit_timing(coord, data_np, channel="PMT", xr=None,
+               include_background=True, nbins=50, sideband_multiplier=2,
+               make_plot=False, output_dir=".", run_id="",
+               fmt="png", dpi=150):
+    """
+    Fit EMG + optional Chebyshev background to a timing distribution.
+    Generates fit plot while model is still in scope if make_plot=True.
     """
     if xr is None:
         xr = [300, 330]
@@ -157,9 +232,7 @@ def fit_timing(coord: Tuple[float, float],
         logger.warning(f"Too few events ({size}) at {coord} for {channel}")
         return _empty_result(coord, channel, size)
 
-    # Count sidebands (on the full uncut distribution is better,
-    # but we work with what's passed in — caller should pass wider range if needed)
-    bkg_left, bkg_right = 0.0, 0.0  # sidebands computed externally if needed
+    bkg_left, bkg_right = 0.0, 0.0
 
     # --- Build model ---------------------------------------------------------
     obs = zfit.Space("x", limits=(xr[0], xr[1]))
@@ -174,12 +247,13 @@ def fit_timing(coord: Tuple[float, float],
     sigma = zfit.Parameter(f"sigma_{label}", 5, 0.2, 50)
 
     emg = ExponentiallyModifiedGaussian(obs=obs, mu=mu, lambd=lambd, sigma=sigma)
-
     emg_yield = zfit.Parameter(f"emg_yield_{label}", sig_yield_naive,
                                sig_yield_naive * 0.01, sig_yield_naive * 1.5,
                                step_size=1)
     emg_ext = emg.create_extended(emg_yield)
 
+    comp_models = [emg_ext]
+    comp_names = ["EMG signal"]
     coeff_val = 0.0
 
     if include_background:
@@ -190,6 +264,8 @@ def fit_timing(coord: Tuple[float, float],
                                          bkg_yield_naive * 2.5, step_size=1)
         bkg_ext = chebyshev.create_extended(bkg_yield_param)
         model = zfit.pdf.SumPDF([emg_ext, bkg_ext])
+        comp_models.append(bkg_ext)
+        comp_names.append("Chebyshev bkg")
     else:
         model = emg_ext
         bkg_yield_param = None
@@ -203,12 +279,20 @@ def fit_timing(coord: Tuple[float, float],
     if not converged:
         logger.warning(f"Fit did not converge for {label}")
 
-    # Hesse errors
     try:
         param_hesse = result.hesse()
     except Exception as e:
         logger.warning(f"Hesse failed for {label}: {e}")
         param_hesse = {}
+
+    # Log correlation matrix
+    try:
+        corr = result.correlation()
+        param_names = [p.name for p in result.params]
+        corr_df = pd.DataFrame(corr, index=param_names, columns=param_names)
+        logger.info(f"\nCorrelation Matrix for {label}:\n{corr_df}")
+    except Exception:
+        pass
 
     # --- Extract results -----------------------------------------------------
     mu_val = float(zfit.run(mu.value()))
@@ -219,19 +303,15 @@ def fit_timing(coord: Tuple[float, float],
     sigma_err = param_hesse.get(sigma, {}).get("error", np.nan)
     lambd_err = param_hesse.get(lambd, {}).get("error", np.nan)
 
-    # Transit time = mu + 1/lambda (mean of EMG distribution)
     if lambd_val != 0:
         transit_time = mu_val + 1.0 / lambd_val
-        # Error propagation: delta(TT) = sqrt(delta_mu^2 + (delta_lambda / lambda^2)^2)
         transit_time_err = np.sqrt(mu_err**2 + (lambd_err / lambd_val**2)**2)
     else:
         transit_time = mu_val
         transit_time_err = mu_err
 
-    # FWHM (TTS)
     tts_fwhm = _compute_fwhm(model, data, size, nbins=nbins)
 
-    # Yields
     sig_yield_val = float(zfit.run(emg_yield.value()))
     sig_yield_err = param_hesse.get(emg_yield, {}).get("error", np.nan)
 
@@ -243,32 +323,37 @@ def fit_timing(coord: Tuple[float, float],
         bkg_yield_val = 0.0
         bkg_yield_err = 0.0
 
+    # --- Plots (while model is alive!) ---------------------------------------
+    if make_plot:
+        fit_params = {
+            "mu": mu_val, "lambd": lambd_val, "sigma": sigma_val,
+            "sig_yield": sig_yield_val, "bkg_yield": bkg_yield_val,
+        }
+        _plot_fit_and_pull(model, comp_models, comp_names,
+                           data, data_np, size,
+                           coord, channel, xr, nbins,
+                           fit_params, tts_fwhm,
+                           output_dir, run_id, fmt=fmt, dpi=dpi)
+
+        _plot_fwhm(model, data, size, coord, channel, nbins, tts_fwhm,
+                   output_dir, run_id, fmt=fmt, dpi=dpi)
+
     return TimingFitResult(
-        coord=coord,
-        channel=channel,
-        mu=mu_val,
-        mu_err=mu_err,
-        sigma=sigma_val,
-        sigma_err=sigma_err,
-        lambd=lambd_val,
-        lambd_err=lambd_err,
-        transit_time=transit_time,
-        transit_time_err=transit_time_err,
+        coord=coord, channel=channel,
+        mu=mu_val, mu_err=mu_err,
+        sigma=sigma_val, sigma_err=sigma_err,
+        lambd=lambd_val, lambd_err=lambd_err,
+        transit_time=transit_time, transit_time_err=transit_time_err,
         tts_fwhm=tts_fwhm,
-        sig_yield=sig_yield_val,
-        sig_yield_err=sig_yield_err,
-        bkg_yield=bkg_yield_val,
-        bkg_yield_err=bkg_yield_err,
+        sig_yield=sig_yield_val, sig_yield_err=sig_yield_err,
+        bkg_yield=bkg_yield_val, bkg_yield_err=bkg_yield_err,
         total_events=size,
-        bkg_left=bkg_left,
-        bkg_right=bkg_right,
-        converged=converged,
-        coeff=coeff_val,
+        bkg_left=bkg_left, bkg_right=bkg_right,
+        converged=converged, coeff=coeff_val,
     )
 
 
 def _empty_result(coord, channel, size):
-    """Return a NaN-filled result for failed fits."""
     return TimingFitResult(
         coord=coord, channel=channel,
         mu=np.nan, mu_err=np.nan,
@@ -284,38 +369,23 @@ def _empty_result(coord, channel, size):
     )
 
 
-def extract_timing_data(df: pd.DataFrame, delta_column: str,
-                        xr: List[float],
-                        require_pulse: Optional[str] = None) -> np.ndarray:
-    """
-    Extract timing offset data from a DataFrame, handling both scalar
-    and LEDTimes (vector) delta columns.
+# =============================================================================
+# Data extraction
+# =============================================================================
 
-    Parameters
-    ----------
-    df : DataFrame
-        Full event DataFrame for one scan point.
-    delta_column : str
-        Name of the delta column (e.g. "delta_PMT_laser_LED").
-    xr : list
-        [lower, upper] range to select events.
-    require_pulse : str or None
-        If set, require this column > 0 (e.g. "PMT_PulseStart").
-
-    Returns
-    -------
-    ndarray
-        Timing offset values within the specified range.
-    """
+def extract_timing_data(df, delta_column, xr, require_pulse=None):
+    """Extract timing offset data, handling scalar and LEDTimes (vector) columns."""
     mask = pd.Series(True, index=df.index)
     if require_pulse and require_pulse in df.columns:
         mask &= df[require_pulse] > 0
 
+    if delta_column not in df.columns:
+        logger.warning(f"Column {delta_column} not found in DataFrame")
+        return np.array([])
+
     filtered = df.loc[mask, delta_column]
 
-    # Handle LEDTimes columns (arrays per event) vs scalar columns
     if delta_column.endswith("_LED"):
-        # Each entry is an array — concatenate all
         arrays = filtered.dropna().values
         if len(arrays) == 0:
             return np.array([])
@@ -323,39 +393,28 @@ def extract_timing_data(df: pd.DataFrame, delta_column: str,
     else:
         all_vals = filtered.dropna().values.astype(float)
 
-    # Apply range cut
-    in_range = all_vals[(all_vals >= xr[0]) & (all_vals <= xr[1])]
-    return in_range
+    return all_vals[(all_vals >= xr[0]) & (all_vals <= xr[1])]
 
 
-def run_timing_analysis(scan_data: Dict[Tuple, pd.DataFrame],
-                        coords: List[Tuple[float, float]],
-                        config: dict) -> Tuple[pd.DataFrame, pd.DataFrame, Optional[pd.DataFrame]]:
+# =============================================================================
+# Batch runner
+# =============================================================================
+
+def run_timing_analysis(scan_data, coords, config):
     """
     Run timing fits for all scan points for PMT, SiPM, and optionally monitor.
-
-    Parameters
-    ----------
-    scan_data : dict
-        Mapping (theta, phi) → DataFrame.
-    coords : list
-        Ordered scan coordinates.
-    config : dict
-        Full configuration dictionary.
-
-    Returns
-    -------
-    pmt_results_df : DataFrame
-        Timing fit results for the PMT channel.
-    sipm_results_df : DataFrame
-        Timing fit results for the SiPM channel.
-    mon_results_df : DataFrame or None
-        Timing fit results for the monitor (if enabled).
+    Plots are generated during the fit (not after) so the model curve is available.
     """
     timing_cfg = config["timing"]
     pmt_cfg = timing_cfg["pmt"]
     sipm_cfg = timing_cfg["sipm"]
     sideband_mult = timing_cfg.get("sideband_multiplier", 2)
+    plot_cfg = config.get("plotting", {})
+    save_plots = plot_cfg.get("save_fit_plots", False)
+    output_dir = config.get("output_dir", ".")
+    run_id = config.get("run_id", "")
+    fmt = plot_cfg.get("figure_format", "png")
+    dpi = plot_cfg.get("dpi", 150)
 
     pmt_results = []
     sipm_results = []
@@ -382,6 +441,8 @@ def run_timing_analysis(scan_data: Dict[Tuple, pd.DataFrame],
                 include_background=pmt_cfg["include_background"],
                 nbins=pmt_cfg["nbins"],
                 sideband_multiplier=sideband_mult,
+                make_plot=save_plots,
+                output_dir=output_dir, run_id=run_id, fmt=fmt, dpi=dpi,
             )
             pmt_results.append(pmt_result.to_dict())
         else:
@@ -399,6 +460,8 @@ def run_timing_analysis(scan_data: Dict[Tuple, pd.DataFrame],
                 include_background=sipm_cfg["include_background"],
                 nbins=sipm_cfg["nbins"],
                 sideband_multiplier=sideband_mult,
+                make_plot=save_plots,
+                output_dir=output_dir, run_id=run_id, fmt=fmt, dpi=dpi,
             )
             sipm_results.append(sipm_result.to_dict())
         else:
@@ -414,12 +477,15 @@ def run_timing_analysis(scan_data: Dict[Tuple, pd.DataFrame],
             if len(mon_data) > 0:
                 mon_result = fit_timing(
                     coord, mon_data, channel="mon",
-                    xr=mon_xr,
-                    include_background=True,
-                    nbins=50,
+                    xr=mon_xr, include_background=True, nbins=50,
                     sideband_multiplier=sideband_mult,
+                    make_plot=save_plots,
+                    output_dir=output_dir, run_id=run_id, fmt=fmt, dpi=dpi,
                 )
                 mon_results.append(mon_result.to_dict())
+            else:
+                # NaN placeholder to keep aligned with PMT/SiPM
+                mon_results.append(_empty_result(coord, "mon", 0).to_dict())
 
     pmt_df = pd.DataFrame(pmt_results) if pmt_results else pd.DataFrame()
     sipm_df = pd.DataFrame(sipm_results) if sipm_results else pd.DataFrame()

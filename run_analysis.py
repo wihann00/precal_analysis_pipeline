@@ -30,11 +30,10 @@ import pandas as pd
 
 from scan_geometry import ScanGeometry
 from data_loader import load_all_scan_points
-from timing_analysis import run_timing_analysis, extract_timing_data, fit_timing
+from timing_analysis import run_timing_analysis
 from charge_analysis import run_charge_analysis
 from relative_quantities import compute_relative_quantities
 from plotting import (
-    plot_timing_fit,
     plot_cross_sections,
     plot_heatmaps,
     plot_parameter_summary,
@@ -102,6 +101,9 @@ def main(config_path: str):
     loaded_coords = [c for c in geometry.coords if c in scan_data]
 
     # ---- Timing analysis -----------------------------------------------------
+    # Fit plots are generated INSIDE run_timing_analysis (while zfit model
+    # is in scope) when save_fit_plots is True — this ensures the model curve
+    # and pull distribution are properly overlaid on the data.
     logger.info("Running timing analysis...")
     pmt_df, sipm_df, mon_df = run_timing_analysis(scan_data, loaded_coords, config)
 
@@ -109,38 +111,6 @@ def main(config_path: str):
     logger.info(f"SiPM fits: {len(sipm_df)} points")
     if mon_df is not None:
         logger.info(f"Monitor fits: {len(mon_df)} points")
-
-    # Save individual timing fit plots
-    if plot_cfg["save_fit_plots"]:
-        logger.info("Generating timing fit plots...")
-        timing_cfg = config["timing"]
-        for _, row in pmt_df.iterrows():
-            coord = row["coord"]
-            df = scan_data[coord]
-            pmt_data = extract_timing_data(
-                df, "delta_PMT_laser_LED",
-                timing_cfg["pmt"]["fit_range"],
-                require_pulse="PMT_PulseStart",
-            )
-            plot_timing_fit(coord, pmt_data, row.to_dict(),
-                           channel="PMT", xr=timing_cfg["pmt"]["fit_range"],
-                           nbins=timing_cfg["pmt"]["nbins"],
-                           output_dir=output_dir, run_id=run_id,
-                           fmt=plot_cfg["figure_format"], dpi=plot_cfg["dpi"])
-
-        for _, row in sipm_df.iterrows():
-            coord = row["coord"]
-            df = scan_data[coord]
-            sipm_data = extract_timing_data(
-                df, "delta_sipm_laser_LED",
-                timing_cfg["sipm"]["fit_range"],
-                require_pulse="sipm_PulseStart",
-            )
-            plot_timing_fit(coord, sipm_data, row.to_dict(),
-                           channel="SiPM", xr=timing_cfg["sipm"]["fit_range"],
-                           nbins=timing_cfg["sipm"]["nbins"],
-                           output_dir=output_dir, run_id=run_id,
-                           fmt=plot_cfg["figure_format"], dpi=plot_cfg["dpi"])
 
     # ---- Charge analysis (if enabled) ----------------------------------------
     charge_df = None
@@ -158,7 +128,7 @@ def main(config_path: str):
         charge_df=charge_df,
     )
 
-    # ---- Generate plots ------------------------------------------------------
+    # ---- Generate cross-section and heatmap plots ----------------------------
     if plot_cfg["save_cross_sections"]:
         logger.info("Generating cross-section plots...")
         plot_cross_sections(summary_df, geometry,
@@ -188,7 +158,7 @@ def main(config_path: str):
     if charge_df is not None and not charge_df.empty:
         charge_df.to_pickle(results_dir / "charge_fits.pkl")
 
-    # Also save the config used for reproducibility
+    # Save config for reproducibility
     with open(results_dir / "config_used.yaml", "w") as f:
         yaml.dump(config, f, default_flow_style=False)
 
