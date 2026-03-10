@@ -19,6 +19,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, Tuple, List, Optional
 import logging
+import plotting
 
 from zfit_models import ExponentiallyModifiedGaussian
 
@@ -93,122 +94,6 @@ def _compute_fwhm(model, data, size, nbins=50):
     if len(above) > 1:
         return x[above[-1]] - x[above[0]]
     return np.nan
-
-
-def _plot_fit_and_pull(model, comp_models, comp_names,
-                       data, data_np, size,
-                       coord, channel, xr, nbins,
-                       fit_params, fwhm_val,
-                       output_dir, run_id, fmt="png", dpi=150):
-    """
-    Generate fit plot with:
-      - Data histogram with Poisson errors
-      - Total model curve (solid)
-      - Individual component curves (dashed)
-      - Pull distribution
-      - Parameter text box
-
-    Called from inside fit_timing() while the model is alive.
-    """
-    theta, phi = coord
-    fig, (ax1, ax2) = plt.subplots(2, 1, gridspec_kw={"height_ratios": [4, 1]},
-                                    figsize=(10, 10))
-
-    # --- Data ---
-    counts, bin_edges = np.histogram(data_np, bins=nbins, range=xr)
-    bin_centres = 0.5 * (bin_edges[1:] + bin_edges[:-1])
-    ax1.errorbar(bin_centres, counts, yerr=np.sqrt(np.maximum(counts, 1)),
-                 fmt="ok", label="data")
-
-    # --- Total model curve ---
-    x_plot = np.linspace(xr[0], xr[1], 1000)
-    scale = size / nbins * data.data_range.area()
-    y_model = model.pdf(x_plot).numpy() * scale
-    ax1.plot(x_plot, y_model, linewidth=3, label="Total fit")
-
-    # --- Component curves (dashed) ---
-    if comp_models is not None:
-        for comp, name in zip(comp_models, comp_names):
-            y_comp = comp.pdf(x_plot).numpy() * scale
-            ax1.plot(x_plot, y_comp, "--", label=name)
-
-    ax1.legend(fontsize=14)
-
-    # --- Text box ---
-    textstr = "\n".join([
-        rf"$\mu = {fit_params['mu']:.2f}$",
-        rf"$\lambda = {fit_params['lambd']:.2f}$",
-        rf"$\sigma = {fit_params['sigma']:.2f}$",
-        f"sig yield = {fit_params['sig_yield']:.0f}",
-        f"bkg yield = {fit_params['bkg_yield']:.0f}",
-        f"FWHM = {fwhm_val:.2f}",
-    ])
-    props = dict(boxstyle="round", facecolor="white", alpha=0.5)
-    ax1.text(0.70, 0.95, textstr, transform=ax1.transAxes, fontsize=16,
-             verticalalignment="top", bbox=props)
-
-    ax1.set_ylabel("Events", fontsize=16)
-    ax1.set_xlim(xr)
-    ax1.set_title(f"{channel} ({theta}, {phi})", fontsize=16)
-
-    # --- Pull ---
-    y_exp = model.pdf(bin_centres).numpy() * scale
-    with np.errstate(divide="ignore", invalid="ignore"):
-        pull = np.where(counts > 0, (counts - y_exp) / np.sqrt(counts), 0)
-
-    ax2.axhline(0, ls="--", color="black")
-    ax2.errorbar(bin_centres, pull, fmt="ok")
-    ax2.set_ylabel("Pull", fontsize=12)
-    ax2.set_xlim(xr)
-    ax2.set_ylim([-5, 5])
-    ax2.set_yticks([-5, 0, 5])
-    ax2.set_xlabel("Time (ns)", fontsize=16)
-
-    for ax in [ax1, ax2]:
-        for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
-                     ax.get_xticklabels() + ax.get_yticklabels()):
-            item.set_fontsize(16)
-
-    fig.tight_layout()
-    outpath = Path(output_dir) / "figures" / "timing_fits" / run_id
-    outpath.mkdir(parents=True, exist_ok=True)
-    fig.savefig(outpath / f"{channel}_theta{theta}_phi{phi}.{fmt}", dpi=dpi)
-    plt.close(fig)
-
-
-def _plot_fwhm(model, data, size, coord, channel, nbins, fwhm_val,
-               output_dir, run_id, fmt="png", dpi=150):
-    """Generate standalone FWHM visualisation plot."""
-    theta, phi = coord
-    lower, upper = data.data_range.limit1d
-    x = np.linspace(lower, upper, 1000)
-    y = model.pdf(x).numpy() * size / nbins * data.data_range.area()
-
-    colours = ['#173F5F', '#20639B', '#3CAEA3', '#F6D55C', '#ED553B']
-
-    try:
-        spline = UnivariateSpline(x, y - np.max(y) / 2, s=0)
-        roots = spline.roots()
-        if len(roots) < 2:
-            return
-        r1, r2 = roots[0], roots[-1]
-    except Exception:
-        return
-
-    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
-    ax.plot(x, y, color=colours[0])
-    ax.axvspan(r1, r2, facecolor=colours[4], alpha=0.75,
-               label=f"r1={r1:.2f}; r2={r2:.2f}\nFWHM={fwhm_val:.2f}")
-    ax.legend(fontsize=14)
-    ax.set_ylim(0, np.max(y) * 1.1)
-    ax.set_title(f"{channel} ({theta}, {phi})", fontsize=14)
-    ax.set_xlabel("Time (ns)", fontsize=14)
-    fig.tight_layout()
-
-    outpath = Path(output_dir) / "figures" / "FWHM" / run_id
-    outpath.mkdir(parents=True, exist_ok=True)
-    fig.savefig(outpath / f"{channel}_theta{theta}_phi{phi}_FWHM.{fmt}", dpi=dpi)
-    plt.close(fig)
 
 
 # =============================================================================
@@ -329,14 +214,14 @@ def fit_timing(coord, data_np, channel="PMT", xr=None,
             "mu": mu_val, "lambd": lambd_val, "sigma": sigma_val,
             "sig_yield": sig_yield_val, "bkg_yield": bkg_yield_val,
         }
-        _plot_fit_and_pull(model, comp_models, comp_names,
-                           data, data_np, size,
-                           coord, channel, xr, nbins,
-                           fit_params, tts_fwhm,
-                           output_dir, run_id, fmt=fmt, dpi=dpi)
 
-        _plot_fwhm(model, data, size, coord, channel, nbins, tts_fwhm,
-                   output_dir, run_id, fmt=fmt, dpi=dpi)
+        fitplotter = plotting.FitPlotter(coord, channel, output_dir, run_id, nbins, fmt, dpi)
+
+        fitplotter.plot_fit_and_pull(model, comp_models, comp_names,
+                           data, data_np, include_background, size, xr,
+                           fit_params, tts_fwhm)
+
+        fitplotter.plot_fwhm(model, data, size, tts_fwhm)
 
     return TimingFitResult(
         coord=coord, channel=channel,
@@ -373,11 +258,16 @@ def _empty_result(coord, channel, size):
 # Data extraction
 # =============================================================================
 
-def extract_timing_data(df, delta_column, xr, require_pulse=None):
+def extract_timing_data(df, delta_column, xr, require_pulse=None, charge_cut=None):
     """Extract timing offset data, handling scalar and LEDTimes (vector) columns."""
     mask = pd.Series(True, index=df.index)
     if require_pulse and require_pulse in df.columns:
         mask &= df[require_pulse] > 0
+
+    if charge_cut is not None:
+        col, threshold = charge_cut  # e.g. ("sipm_PulseCharge", 790)
+        if col in df.columns:
+            mask &= df[col] < threshold
 
     if delta_column not in df.columns:
         logger.warning(f"Column {delta_column} not found in DataFrame")
@@ -451,7 +341,8 @@ def run_timing_analysis(scan_data, coords, config):
         # --- SiPM timing fit ---
         sipm_data = extract_timing_data(
             df, "delta_sipm_laser_LED", sipm_cfg["fit_range"],
-            require_pulse="sipm_PulseStart"
+            require_pulse="sipm_PulseStart",
+            charge_cut=("sipm_PulseCharge", sipm_cfg["charge_cut"]),
         )
         if len(sipm_data) > 0:
             sipm_result = fit_timing(
@@ -471,7 +362,7 @@ def run_timing_analysis(scan_data, coords, config):
         if config["monitor"]["enabled"]:
             mon_xr = config["monitor"]["fit_range"]
             mon_data = extract_timing_data(
-                df, "delta_mon_laser_LED", mon_xr,
+                df, "delta_mon_laser", mon_xr,
                 require_pulse="mon_PulseStart"
             )
             if len(mon_data) > 0:

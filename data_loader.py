@@ -20,7 +20,7 @@ SAMPLE_TO_NS = 2  # default; overridden by config
 
 def find_root_file(data_dir: str, run_id: str, theta: float, phi: float) -> str:
     """Locate the ROOT file for a given scan coordinate."""
-    pattern = f"{data_dir}/{run_id}/*theta{int(theta)}_phi{int(phi)}*.root"
+    pattern = f"{data_dir}/*theta{int(theta)}_phi{int(phi)}*.root"
     matches = glob(pattern)
     if not matches:
         raise FileNotFoundError(f"No ROOT file found for pattern: {pattern}")

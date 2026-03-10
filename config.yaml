@@ -5,8 +5,8 @@
 # Then execute: python run_analysis.py --config config.yaml
 
 # --- Run identification -------------------------------------------------------
-run_id: "260204_225940"
-data_dir: "/data/projects/punim0011/wihann/Deployment/data/rootfiles"
+run_id: "260204_225940_1"
+data_dir: "/data/projects/punim0011/wihann/Deployment/data/rootfiles/260204_225940"
 output_dir: "/data/projects/punim0011/wihann/Deployment/analysis/output"
 
 # --- Channel mapping ----------------------------------------------------------
@@ -25,13 +25,14 @@ scan:
 # --- Timing analysis ----------------------------------------------------------
 timing:
   pmt:
-    fit_range: [300, 330]       # ns window for PMT–laser timing distribution
+    fit_range: [300, 320]       # ns window for PMT–laser timing distribution
     include_background: true
     nbins: 50
   sipm:
-    fit_range: [95, 105]        # ns window for SiPM–laser timing distribution
+    fit_range: [95, 105]
     include_background: true
     nbins: 50
+    charge_cut: 790
   # Background estimation sidebands (in units of the window width)
   sideband_multiplier: 2        # left sideband = [xr[0] - 2*width, xr[0] - width]
 
@@ -49,7 +50,7 @@ charge:
 # --- Monitor PMT --------------------------------------------------------------
 monitor:
   enabled: true                 # track laser stability via monitor PMT yield
-  fit_range: [300, 330]         # ns — same basis as PMT timing window (adjust if needed)
+  fit_range: [214, 224]         # ns — same basis as PMT timing window (adjust if needed)
 
 # --- Plotting -----------------------------------------------------------------
 plotting:

@@ -16,6 +16,8 @@ from matplotlib.colors import Normalize
 from pathlib import Path
 from typing import Tuple, List, Optional, Dict
 import logging
+import zfit
+import matplotlib as mpl
 
 from scan_geometry import ScanGeometry
 
@@ -29,7 +31,7 @@ COLOURS = {
     "sipm_y": "deepskyblue",
     "norm_x": "darkred",
     "norm_y": "darkblue",
-    "monitor": "darkorange",
+    "monitor": "blueviolet",
 }
 
 
@@ -41,72 +43,170 @@ def _ensure_dir(path: str):
 # Timing fit plots (individual per scan point)
 # =============================================================================
 
-def plot_timing_fit(coord: Tuple[float, float],
-                    data_np: np.ndarray,
-                    fit_result: dict,
-                    model_pdf_func=None,
-                    channel: str = "PMT",
-                    xr: List[float] = None,
-                    nbins: int = 50,
-                    output_dir: str = ".",
-                    run_id: str = "",
-                    fmt: str = "png",
-                    dpi: int = 150):
-    """
-    Plot a timing distribution fit with pull distribution.
+class FitPlotter:
+    def __init__(self, coord, channel, output_dir, run_id, nbins, fmt, dpi):
+        self.coord = coord
+        self.channel = channel
+        self.output_dir = output_dir
+        self.run_id = run_id
+        self.nbins = nbins
+        self.fmt = fmt
+        self.dpi = dpi
 
-    Note: Since zfit models don't survive pickling, this function accepts
-    raw data and fit parameters to reconstruct a simple overlay.
-    For full model plots, call this during the fit loop.
-    """
-    if xr is None:
-        xr = [300, 330]
+    def hist_data(self, data, nbins=50):
 
-    theta, phi = coord
+        lower, upper = data.data_range.limit1d
+        data_np = zfit.run(data.value()[:, 0])
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, gridspec_kw={"height_ratios": [4, 1]},
-                                    figsize=(10, 10))
+        counts, bin_edges = np.histogram(data_np, nbins, range=(lower, upper))
+        bin_centers = (bin_edges[1:] + bin_edges[:-1]) / 2
 
-    # Histogram
-    counts, bin_edges = np.histogram(data_np, bins=nbins, range=xr)
-    bin_centres = 0.5 * (bin_edges[1:] + bin_edges[:-1])
-    bin_width = bin_edges[1] - bin_edges[0]
-    ax1.errorbar(bin_centres, counts, yerr=np.sqrt(np.maximum(counts, 1)),
-                 fmt="ok", label="data")
+        return counts, bin_centers
 
-    # Text box with fit parameters
-    textstr = "\n".join([
-        rf"$\mu = {fit_result.get('mu', 0):.2f}$",
-        rf"$\lambda = {fit_result.get('lambd', 0):.2f}$",
-        rf"$\sigma = {fit_result.get('sigma', 0):.2f}$",
-        f"sig yield = {fit_result.get('sig_yield', 0):.0f}",
-        f"bkg yield = {fit_result.get('bkg_yield', 0):.0f}",
-        f"FWHM = {fit_result.get('tts_fwhm', 0):.2f}",
-    ])
-    props = dict(boxstyle="round", facecolor="white", alpha=0.5)
-    ax1.text(0.70, 0.95, textstr, transform=ax1.transAxes, fontsize=16,
-             verticalalignment="top", bbox=props)
+    def plot_model(self, model, data, size, ax, scale=1, model_name=None, plot_data=True, comp=False, nbins=50):  # we will use scale later on
 
-    ax1.set_ylabel("Events", fontsize=16)
-    ax1.set_xlim(xr)
-    ax1.set_title(f"{channel} ({theta}, {phi})", fontsize=16)
+        lower, upper = data.data_range.limit1d
 
-    # Pull (placeholder — zeros if no model curve available)
-    ax2.axhline(0, ls="--", color="black")
-    ax2.set_ylabel("Pull", fontsize=12)
-    ax2.set_xlim(xr)
-    ax2.set_ylim([-5, 5])
-    ax2.set_yticks([-5, 0, 5])
-    ax2.set_xlabel("Time (ns)", fontsize=16)
+        x = np.linspace(lower, upper, num=1000)  # np.linspace also works
+        y = model.pdf(x) * size / nbins * data.data_range.area()
+        y *= scale
+        if comp==True:
+            ax.plot(x, y, '--', label=model_name)
+        else:
+            ax.plot(x, y, linewidth=3)
 
-    for ax in [ax1, ax2]:
-        ax.tick_params(labelsize=14)
+        if plot_data:
 
-    fig.tight_layout()
-    outpath = Path(output_dir) / "figures" / "timing_fits" / run_id
-    _ensure_dir(outpath)
-    fig.savefig(outpath / f"{channel}_theta{theta}_phi{phi}.{fmt}", dpi=dpi)
-    plt.close(fig)
+            counts, bin_centers = self.hist_data(data, nbins=nbins)
+
+            ax.errorbar(bin_centers, counts, yerr = np.sqrt(counts), fmt='ok', label='data')
+
+    def plot_comp_model(self, model, data, size, ax, model_names=None, nbins=50, extra_frac=1):
+        # print(model.models)
+        for i, (mod, frac) in enumerate(zip(model.pdfs, model.params.values())):
+            # print(str(mod))
+            model_name = model_names[i]
+            if str(mod.name) == 'SumPDF_ext':
+                self.plot_comp_model(mod, data, size, ax, model_names=model_name, extra_frac=frac, nbins=nbins)
+                continue
+            # print(str(frac))
+            self.plot_model(mod, data, size, ax, scale=frac*extra_frac, model_name=model_name, plot_data=False, comp=True, nbins=nbins)
+
+    def plot_fit_and_pull(self, model, comp_models, model_names,
+                        data, data_np, inc_bkg, size, xr,
+                        fit_params, fwhm_val):
+        """
+        Generate fit plot with:
+        - Data histogram with Poisson errors
+        - Total model curve (solid)
+        - Individual component curves (dashed)
+        - Pull distribution
+        - Parameter text box
+
+        Called from inside fit_timing() while the model is alive.
+        """
+        coord = self.coord
+        theta, phi = coord
+        nbins = self.nbins
+        fig, (ax1, ax2) = plt.subplots(2, 1, gridspec_kw={'height_ratios': [4, 1]}, figsize=(10, 10))
+
+        if inc_bkg:
+            # self.plot_comp_model(sig_ext, data, size, ax1)
+            self.plot_comp_model(model, data, size, ax1, model_names=model_names, nbins=nbins)
+        else:
+            self.plot_model(model, data, size, ax1, model_names=model_names, nbins=nbins)
+            # self.plot_comp_model(model, data, size, ax1)
+        
+        self.plot_model(model, data, size, ax1, nbins=nbins)
+
+        # Main axis
+        ax1.set_ylabel(f'Events', loc='top', fontsize=12)
+        ax1.set_xlim([xr[0], xr[1]])
+        ax1.set_title(f"{self.channel} ({theta}, {phi})", fontsize=14)
+
+        textstr = '\n'.join((
+        r'$\mu=%.2f$' % (fit_params["mu"], ),
+        r'$\lambda=%.2f$' % (fit_params["lambd"], ),
+        r'$\sigma=%.2f$' % (fit_params["sigma"], ),
+        r'sig yield$=%.0f$' % (fit_params["sig_yield"], ),
+        r'bkg yield$=%.0f$' % (fit_params["bkg_yield"], ),
+        # r'bkg left$=%.2f$' % (bkg_in_left_window, ),
+        # r'bkg right$=%.2f$' % (bkg_in_right_window, ),
+        'FHWM=%.2f' % (fwhm_val, ))) #FWHM
+
+        # these are matplotlib.patch.Patch properties
+        props = dict(boxstyle='round', facecolor='white', alpha=0.5)
+
+        # place a text box in upper left in axes coords
+        ax1.text(0.7, 0.95, textstr, transform=ax1.transAxes, fontsize=20,
+        verticalalignment='top', bbox=props)
+
+        # Pull axis
+        counts, bin_centers = self.hist_data(data)
+        y_obs = counts
+        y_exp = model.pdf(bin_centers) * size / nbins * data.data_range.area()
+
+        resid = y_obs - y_exp
+        pull = resid/np.sqrt(counts)
+
+        ax2.plot(np.linspace(xr[0], xr[1], 500), np.zeros(500), '--', color='black')
+        ax2.errorbar(bin_centers, pull, fmt='ok')
+        ax2.set_ylabel(f'Pull', fontsize=12)
+        ax2.set_xlim([xr[0], xr[1]])
+        # if (max(pull) < 5) and  (min(pull) > -5):
+        #     ax2.set_ylim([-5, 5])
+        #     ax2.set_yticks([-5, 0, 5])
+        ax2.set_ylim([-5, 5])
+        ax2.set_yticks([-5, 0, 5])
+
+        plt.xlabel('Time (ns)', fontsize=20)
+
+        for ax in [ax1, ax2]:
+            for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] + 
+                        ax.get_xticklabels() + ax.get_yticklabels()):
+                item.set_fontsize(20)
+
+        fig.tight_layout()
+        outpath = Path(self.output_dir) / "figures" / "timing_fits" / self.run_id / self.channel
+        outpath.mkdir(parents=True, exist_ok=True)
+        fig.savefig(outpath / f"{self.channel}_theta{theta}_phi{phi}.{self.fmt}", dpi=self.dpi)
+        plt.close(fig)
+
+
+    def plot_fwhm(self, model, data, size, fwhm_val):
+        """Generate standalone FWHM visualisation plot."""
+        coord = self.coord
+        theta, phi = coord
+        nbins = self.nbins
+        lower, upper = data.data_range.limit1d
+        x = np.linspace(lower, upper, 1000)
+        y = model.pdf(x).numpy() * size / nbins * data.data_range.area()
+
+        colours = ['#173F5F', '#20639B', '#3CAEA3', '#F6D55C', '#ED553B']
+
+        try:
+            spline = UnivariateSpline(x, y - np.max(y) / 2, s=0)
+            roots = spline.roots()
+            if len(roots) < 2:
+                return
+            r1, r2 = roots[0], roots[-1]
+        except Exception:
+            return
+
+        fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+        ax.plot(x, y, color=colours[0])
+        ax.axvspan(r1, r2, facecolor=colours[4], alpha=0.75,
+                label=f"r1={r1:.2f}; r2={r2:.2f}\nFWHM={fwhm_val:.2f}")
+        ax.legend(fontsize=14)
+        ax.set_ylim(0, np.max(y) * 1.1)
+        ax.set_title(f"{self.channel} ({theta}, {phi})", fontsize=14)
+        ax.set_xlabel("Time (ns)", fontsize=14)
+        fig.tight_layout()
+
+        outpath = Path(self.output_dir) / "figures" / "FWHM" / self.run_id
+        outpath.mkdir(parents=True, exist_ok=True)
+        fig.savefig(outpath / f"{self.channel}_theta{theta}_phi{phi}_FWHM.{self.fmt}", dpi=self.dpi)
+        plt.close(fig)
 
 
 # =============================================================================
@@ -276,8 +376,8 @@ def plot_heatmaps(summary_df: pd.DataFrame,
     _ensure_dir(outpath)
 
     quantities = {
-        "corrected_rel_efficiency": ("Corrected Relative Detection Efficiency", "RdYlGn"),
-        "rel_pmt_yield": ("Relative PMT Yield", "viridis"),
+        "corrected_rel_efficiency": ("Corrected Relative Detection Efficiency", "plasma"),
+        "rel_pmt_yield": ("Relative PMT Yield", "plasma"),
         "pmt_tts_fwhm": ("TTS FWHM (ns)", "plasma"),
         "rel_transit_time": ("Transit Time Offset (ns)", "coolwarm"),
     }
@@ -285,42 +385,77 @@ def plot_heatmaps(summary_df: pd.DataFrame,
     if "rel_gain" in summary_df.columns:
         quantities["rel_gain"] = ("Relative Gain", "viridis")
 
-    for col, (title, cmap) in quantities.items():
+    for col, (title, colormap) in quantities.items():
         if col not in summary_df.columns:
             continue
 
-        fig, ax = plt.subplots(1, 1, figsize=(10, 8), subplot_kw={"projection": "polar"})
-
-        # Convert to polar coordinates for the heatmap
         values = summary_df[col].values
-        coords = summary_df["coord"].values
+        coords_list = list(summary_df["coord"].values)
 
-        # Plot as scatter on polar axes
-        thetas_rad = []
-        phis_rad = []
-        vals = []
+        # Build grid: rows = azimuth, cols = zenith
+        n_azimuths = len(azimuth_vals)
+        n_zeniths = len(zenith_vals)
+        z_grid = np.full((n_azimuths, n_zeniths), np.nan)
 
-        for i, c in enumerate(coords):
+        for i, c in enumerate(coords_list):
             theta, phi = c
-            thetas_rad.append(np.radians(theta))  # zenith as radial
-            # Swap: zenith = radial distance, azimuth = angular position
-            phis_rad.append(np.radians(phi))
-            vals.append(values[i])
+            zenith_idx = np.where(zenith_vals == theta)[0][0]
+            azimuth_idx = np.where(azimuth_vals == phi)[0][0]
+            z_grid[azimuth_idx, zenith_idx] = values[i]
 
-        # For the centre point (theta=0), it should appear at radius 0
-        scatter = ax.scatter(phis_rad, thetas_rad, c=vals, cmap=cmap,
-                              s=300, edgecolors="black", linewidth=0.5, zorder=5)
+        # Fill centre (zenith=0) for all azimuths with the same value
+        center_value = z_grid[0, 0]
+        z_grid[:, 0] = center_value
 
+        # Create polar wedge plot
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_axes([0.1, 0.1, 0.8, 0.8], polar=True)
+        ax.set_theta_zero_location('S')
+        ax.set_theta_direction(-1)
+
+        cmap = mpl.colormaps[colormap]
+        if col=="corrected_rel_efficiency" or col=="rel_pmt_yield":
+            norm = mpl.colors.Normalize(vmin=0.2, vmax=1.5)
+        else:
+            norm = mpl.colors.Normalize(vmin=np.nanmin(values), vmax=np.nanmax(values))
+
+        bin_width = 5  # degrees half-width on each side
+
+        for i_azimuth in range(n_azimuths):
+            for i_zenith in range(n_zeniths):
+                value = z_grid[i_azimuth, i_zenith]
+                if np.isnan(value):
+                    continue
+
+                theta_center = np.deg2rad(azimuth_vals[i_azimuth])
+                theta_width = np.deg2rad(360 / n_azimuths)
+
+                zenith = zenith_vals[i_zenith]
+                if i_zenith == 0:
+                    r_inner = 0
+                    r_outer = bin_width
+                else:
+                    r_inner = max(0, zenith - bin_width)
+                    r_outer = zenith + bin_width
+
+                r_height = r_outer - r_inner
+                color = cmap(norm(value))
+
+                ax.bar(theta_center, r_height, width=theta_width,
+                       bottom=r_inner, color=color, edgecolor='grey', linewidth=0.5)
+
+        fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=colormap),
+                     ax=ax, orientation='vertical', label=title, pad=0.1)
+
+        ax.set_ylim(0, max(zenith_vals) + bin_width)
+        ax.set_yticks(list(zenith_vals))
+        ax.set_yticklabels([f'{int(z)}°' for z in zenith_vals])
+        ax.set_xticks(np.deg2rad(list(azimuth_vals)))
+        ax.set_xticklabels([f'{int(a)}°' for a in azimuth_vals])
         ax.set_title(f"{title}\n{run_id}", fontsize=14, pad=20)
-        ax.set_rticks(list(geometry.zeniths))
-        ax.set_rlabel_position(45)
-        ax.set_thetagrids(list(geometry.azimuths))
 
-        cbar = plt.colorbar(scatter, ax=ax, pad=0.1, shrink=0.8)
-        cbar.set_label(title, fontsize=12)
-
-        fig.tight_layout()
-        fig.savefig(outpath / f"heatmap_{col}.{fmt}", dpi=dpi)
+        # fig.tight_layout()
+        fig.savefig(outpath / f"heatmap_{col}.{fmt}", dpi=dpi, bbox_inches='tight')
         plt.close(fig)
 
     # --- Also produce a simple rectangular grid heatmap ----
