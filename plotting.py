@@ -44,9 +44,10 @@ def _ensure_dir(path: str):
 # =============================================================================
 
 class FitPlotter:
-    def __init__(self, coord, channel, output_dir, run_id, nbins, fmt, dpi):
+    def __init__(self, coord, channel, pmt_serial, output_dir, run_id, nbins, fmt, dpi):
         self.coord = coord
         self.channel = channel
+        self.pmt_serial = pmt_serial
         self.output_dir = output_dir
         self.run_id = run_id
         self.nbins = nbins
@@ -167,7 +168,7 @@ class FitPlotter:
                 item.set_fontsize(20)
 
         fig.tight_layout()
-        outpath = Path(self.output_dir) / "figures" / "timing_fits" / self.run_id / self.channel
+        outpath = Path(self.output_dir) / "figures" / "timing_fits" / f"{self.run_id}-{self.pmt_serial}" / self.channel
         outpath.mkdir(parents=True, exist_ok=True)
         fig.savefig(outpath / f"{self.channel}_theta{theta}_phi{phi}.{self.fmt}", dpi=self.dpi)
         plt.close(fig)
@@ -203,7 +204,7 @@ class FitPlotter:
         ax.set_xlabel("Time (ns)", fontsize=14)
         fig.tight_layout()
 
-        outpath = Path(self.output_dir) / "figures" / "FWHM" / self.run_id
+        outpath = Path(self.output_dir) / "figures" / "FWHM" / f"{self.run_id}-{self.pmt_serial}-" / self.channel
         outpath.mkdir(parents=True, exist_ok=True)
         fig.savefig(outpath / f"{self.channel}_theta{theta}_phi{phi}_FWHM.{self.fmt}", dpi=self.dpi)
         plt.close(fig)
@@ -215,6 +216,7 @@ class FitPlotter:
 
 def plot_cross_sections(summary_df: pd.DataFrame,
                         geometry: ScanGeometry,
+                        pmt_serial: str = "",
                         output_dir: str = ".",
                         run_id: str = "",
                         fmt: str = "png",
@@ -226,7 +228,7 @@ def plot_cross_sections(summary_df: pd.DataFrame,
            relative transit time, TTS.
     """
     x_move, y_move, angle_axis = geometry.cross_section_indices()
-    outpath = Path(output_dir) / "figures" / "cross_sections" / run_id
+    outpath = Path(output_dir) / "figures" / "cross_sections" / f"{run_id}-{pmt_serial}"
     _ensure_dir(outpath)
 
     # Helper to safely index
@@ -364,6 +366,7 @@ def plot_cross_sections(summary_df: pd.DataFrame,
 
 def plot_heatmaps(summary_df: pd.DataFrame,
                   geometry: ScanGeometry,
+                  pmt_serial: str = "",
                   output_dir: str = ".",
                   run_id: str = "",
                   fmt: str = "png",
@@ -372,7 +375,7 @@ def plot_heatmaps(summary_df: pd.DataFrame,
     Generate 2D heatmaps of key parameters over the scan grid.
     """
     zenith_vals, azimuth_vals, grid_index = geometry.heatmap_grid()
-    outpath = Path(output_dir) / "figures" / "heatmaps" / run_id
+    outpath = Path(output_dir) / "figures" / "heatmaps" / f"{run_id}-{pmt_serial}"
     _ensure_dir(outpath)
 
     quantities = {
@@ -515,12 +518,13 @@ def plot_heatmaps(summary_df: pd.DataFrame,
 # =============================================================================
 
 def plot_parameter_summary(summary_df: pd.DataFrame,
+                           pmt_serial: str="",
                            output_dir: str = ".",
                            run_id: str = "",
                            fmt: str = "png",
                            dpi: int = 150):
     """Plot EMG fit parameters across all scan points."""
-    outpath = Path(output_dir) / "figures" / "summary" / run_id
+    outpath = Path(output_dir) / "figures" / "summary" / f"{run_id}-{pmt_serial}"
     _ensure_dir(outpath)
 
     coords = [str(c) for c in summary_df["coord"].values]

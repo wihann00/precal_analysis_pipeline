@@ -5,8 +5,9 @@
 # Then execute: python run_analysis.py --config config.yaml
 
 # --- Run identification -------------------------------------------------------
-run_id: "260204_225940_1"
-data_dir: "/data/projects/punim0011/wihann/Deployment/data/rootfiles/260204_225940"
+run_id: "260227_132622"
+pmt_serial: EL5150-B
+data_dir: "/data/projects/punim0011/wihann/Deployment/data/rootfiles/260227_132622"
 output_dir: "/data/projects/punim0011/wihann/Deployment/analysis/output"
 
 # --- Channel mapping ----------------------------------------------------------
@@ -14,7 +15,7 @@ output_dir: "/data/projects/punim0011/wihann/Deployment/analysis/output"
 # CH1 = SiPM (always)
 # CH2 = PMT1, CH3 = PMT2 (select one)
 # CH4 = monitor PMT (always)
-pmt_channel: 2            # 2 for PMT1, 3 for PMT2
+pmt_channel: 2           # 2 for PMT1, 3 for PMT2
 sample_to_ns: 2           # digitizer sample → ns conversion factor
 
 # --- Scan geometry ------------------------------------------------------------
@@ -25,7 +26,7 @@ scan:
 # --- Timing analysis ----------------------------------------------------------
 timing:
   pmt:
-    fit_range: [300, 320]       # ns window for PMT–laser timing distribution
+    fit_range: [310, 330]       # ns window for PMT–laser timing distribution
     include_background: true
     nbins: 50
   sipm:

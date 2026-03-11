@@ -66,6 +66,7 @@ def main(config_path: str):
     pmt_channel = config["pmt_channel"]
     sample_to_ns = config["sample_to_ns"]
     plot_cfg = config["plotting"]
+    pmt_serial = config["pmt_serial"]
 
     setup_logging(output_dir, run_id)
     logger = logging.getLogger("run_analysis")
@@ -131,22 +132,22 @@ def main(config_path: str):
     # ---- Generate cross-section and heatmap plots ----------------------------
     if plot_cfg["save_cross_sections"]:
         logger.info("Generating cross-section plots...")
-        plot_cross_sections(summary_df, geometry,
+        plot_cross_sections(summary_df, geometry, pmt_serial,
                             output_dir=output_dir, run_id=run_id,
                             fmt=plot_cfg["figure_format"], dpi=plot_cfg["dpi"])
 
     if plot_cfg["save_heatmap"]:
         logger.info("Generating heatmaps...")
-        plot_heatmaps(summary_df, geometry,
+        plot_heatmaps(summary_df, geometry, pmt_serial,
                        output_dir=output_dir, run_id=run_id,
                        fmt=plot_cfg["figure_format"], dpi=plot_cfg["dpi"])
 
     # Parameter summary plot
-    plot_parameter_summary(summary_df, output_dir=output_dir, run_id=run_id,
+    plot_parameter_summary(summary_df, pmt_serial=pmt_serial, output_dir=output_dir, run_id=run_id,
                            fmt=plot_cfg["figure_format"], dpi=plot_cfg["dpi"])
 
     # ---- Save results --------------------------------------------------------
-    results_dir = Path(output_dir) / "data" / "results" / run_id
+    results_dir = Path(output_dir) / "data" / "results" / f"{run_id}-{pmt_serial}"
     results_dir.mkdir(parents=True, exist_ok=True)
 
     summary_df.to_pickle(results_dir / "summary.pkl")

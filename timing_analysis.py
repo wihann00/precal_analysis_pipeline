@@ -100,7 +100,7 @@ def _compute_fwhm(model, data, size, nbins=50):
 # Main fit function
 # =============================================================================
 
-def fit_timing(coord, data_np, channel="PMT", xr=None,
+def fit_timing(coord, data_np, channel="PMT", pmt_serial="", xr=None,
                include_background=True, nbins=50, sideband_multiplier=2,
                make_plot=False, output_dir=".", run_id="",
                fmt="png", dpi=150):
@@ -159,6 +159,7 @@ def fit_timing(coord, data_np, channel="PMT", xr=None,
     nll = zfit.loss.ExtendedUnbinnedNLL(model, data)
     minimizer = zfit.minimize.Minuit()
     result = minimizer.minimize(nll)
+    logger.info(f"\nParameter Results for {label}:\n{result.params}")
 
     converged = result.converged
     if not converged:
@@ -215,7 +216,7 @@ def fit_timing(coord, data_np, channel="PMT", xr=None,
             "sig_yield": sig_yield_val, "bkg_yield": bkg_yield_val,
         }
 
-        fitplotter = plotting.FitPlotter(coord, channel, output_dir, run_id, nbins, fmt, dpi)
+        fitplotter = plotting.FitPlotter(coord, channel, pmt_serial, output_dir, run_id, nbins, fmt, dpi)
 
         fitplotter.plot_fit_and_pull(model, comp_models, comp_names,
                            data, data_np, include_background, size, xr,
@@ -305,6 +306,7 @@ def run_timing_analysis(scan_data, coords, config):
     run_id = config.get("run_id", "")
     fmt = plot_cfg.get("figure_format", "png")
     dpi = plot_cfg.get("dpi", 150)
+    pmt_serial = config.get("pmt_serial", "")
 
     pmt_results = []
     sipm_results = []
@@ -326,7 +328,7 @@ def run_timing_analysis(scan_data, coords, config):
         )
         if len(pmt_data) > 0:
             pmt_result = fit_timing(
-                coord, pmt_data, channel="PMT",
+                coord, pmt_data, channel="PMT", pmt_serial=pmt_serial,
                 xr=pmt_cfg["fit_range"],
                 include_background=pmt_cfg["include_background"],
                 nbins=pmt_cfg["nbins"],
@@ -346,7 +348,7 @@ def run_timing_analysis(scan_data, coords, config):
         )
         if len(sipm_data) > 0:
             sipm_result = fit_timing(
-                coord, sipm_data, channel="sipm",
+                coord, sipm_data, channel="sipm", pmt_serial=pmt_serial,
                 xr=sipm_cfg["fit_range"],
                 include_background=sipm_cfg["include_background"],
                 nbins=sipm_cfg["nbins"],
@@ -366,14 +368,18 @@ def run_timing_analysis(scan_data, coords, config):
                 require_pulse="mon_PulseStart"
             )
             if len(mon_data) > 0:
-                mon_result = fit_timing(
-                    coord, mon_data, channel="mon",
-                    xr=mon_xr, include_background=True, nbins=50,
-                    sideband_multiplier=sideband_mult,
-                    make_plot=save_plots,
-                    output_dir=output_dir, run_id=run_id, fmt=fmt, dpi=dpi,
-                )
-                mon_results.append(mon_result.to_dict())
+                try:
+                    mon_result = fit_timing(
+                        coord, mon_data, channel="mon", pmt_serial=pmt_serial,
+                        xr=mon_xr, include_background=True, nbins=50,
+                        sideband_multiplier=sideband_mult,
+                        make_plot=save_plots,
+                        output_dir=output_dir, run_id=run_id, fmt=fmt, dpi=dpi,
+                    )
+                    mon_results.append(mon_result.to_dict())
+                except Exception as e:
+                    logger.warning(f"Monitor fit failed for {coord}: {e}")
+                    mon_results.append(_empty_result(coord, "mon", len(mon_data)).to_dict())
             else:
                 # NaN placeholder to keep aligned with PMT/SiPM
                 mon_results.append(_empty_result(coord, "mon", 0).to_dict())
