@@ -145,8 +145,8 @@ def fit_timing(coord, data_np, channel="PMT", pmt_serial="", xr=None,
         coeffs = [zfit.Parameter(f"coeff_0_{label}", 0, -2, 1, floating=False)]
         chebyshev = zfit.pdf.Chebyshev(obs=obs, coeffs=coeffs)
         bkg_yield_param = zfit.Parameter(f"bkg_yield_{label}", bkg_yield_naive,
-                                         bkg_yield_naive * 0.01,
-                                         bkg_yield_naive * 2.5, step_size=1)
+                                         bkg_yield_naive * 0.005,
+                                         bkg_yield_naive * 3, step_size=1)
         bkg_ext = chebyshev.create_extended(bkg_yield_param)
         model = zfit.pdf.SumPDF([emg_ext, bkg_ext])
         comp_models.append(bkg_ext)

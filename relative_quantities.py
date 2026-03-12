@@ -56,11 +56,25 @@ def _double_ratio(pmt_yield, pmt_err, sipm_yield, sipm_err,
 
     return ratio, ratio_err, rel_pmt, rel_pmt_err, rel_sipm, rel_sipm_err
 
+def _relative_to_siggen(tot_evts: np.ndarray, values: np.ndarray, errors: np.ndarray):
+    """
+    Compute values relative to total triggered events: rel = val / total evts.
 
-def compute_relative_quantities(pmt_df: pd.DataFrame,
-                                 sipm_df: pd.DataFrame,
-                                 mon_df: Optional[pd.DataFrame] = None,
-                                 charge_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+    Error propagation for ratio a/b:
+        δ(x/c) = (δx)/c
+    """
+    with np.errstate(divide="ignore", invalid="ignore"):
+        pmt_occupancy = values / tot_evts
+        pmt_occupancy_err = errors / tot_evts
+
+    return pmt_occupancy, pmt_occupancy_err
+
+
+def compute_relative_quantities(scan_data: dict,
+                                pmt_df: pd.DataFrame,
+                                sipm_df: pd.DataFrame,
+                                mon_df: Optional[pd.DataFrame] = None,
+                                charge_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """
     Compute all relative quantities normalised to the centre (first) scan point.
 
@@ -85,6 +99,10 @@ def compute_relative_quantities(pmt_df: pd.DataFrame,
         pmt_centre["sig_yield"], pmt_centre["sig_yield_err"],
         sipm_centre["sig_yield"], sipm_centre["sig_yield_err"],
     )
+
+    total_events = np.array([len(scan_data[coord]) for coord in pmt_df["coord"]])
+
+    (pmt_occupancy, pmt_occupancy_err) = _relative_to_siggen(total_events, pmt_sig, pmt_sig_err)
 
     # --- Relative timing offset (transit time) -------------------------------
     tt = pmt_df["transit_time"].values
@@ -118,6 +136,8 @@ def compute_relative_quantities(pmt_df: pd.DataFrame,
         "pmt_sigma_err": pmt_df["sigma_err"].values,
         "pmt_lambd": pmt_df["lambd"].values,
         "pmt_lambd_err": pmt_df["lambd_err"].values,
+        "pmt_occupancy": pmt_occupancy,
+        "pmt_occupancy_err": pmt_occupancy_err,
         # Relative quantities
         "rel_pmt_yield": rel_pmt,
         "rel_pmt_yield_err": rel_pmt_err,

@@ -244,6 +244,7 @@ def plot_cross_sections(summary_df: pd.DataFrame,
     # ---- Plot 1: Relative signal yields (PMT, SiPM, corrected) ----
     fig, ax = plt.subplots(1, 1, figsize=(18, 7))
 
+    ax.plot([], [], ' ', label=f'PMT: {pmt_serial}') # Invisible plot for PMT serial
     ax.errorbar(angle_axis, _get("rel_pmt_yield", x_move),
                 yerr=_get("rel_pmt_yield_err", x_move),
                 label="PMT: x-axis", color=COLOURS["pmt_x"],
@@ -275,6 +276,7 @@ def plot_cross_sections(summary_df: pd.DataFrame,
     # ---- Plot 2: Corrected relative detection efficiency ----
     fig, ax = plt.subplots(1, 1, figsize=(18, 7))
 
+    ax.plot([], [], ' ', label=f'PMT: {pmt_serial}') # Invisible plot for PMT serial
     ax.errorbar(angle_axis, _get("corrected_rel_efficiency", x_move),
                 yerr=_get("corrected_rel_efficiency_err", x_move),
                 label="Corrected ε: x-axis", color=COLOURS["norm_x"],
@@ -295,9 +297,33 @@ def plot_cross_sections(summary_df: pd.DataFrame,
     fig.savefig(outpath / f"corrected_efficiency.{fmt}", dpi=dpi)
     plt.close(fig)
 
-    # ---- Plot 3: Transit time offset ----
+    # ---- Plot 3: pmt occupancy ----
     fig, ax = plt.subplots(1, 1, figsize=(18, 7))
 
+    ax.plot([], [], ' ', label=f'PMT: {pmt_serial}') # Invisible plot for PMT serial
+    ax.errorbar(angle_axis, _get("pmt_occupancy", x_move),
+                yerr=_get("pmt_occupancy_err", x_move),
+                label="rel. DE: x-axis", color=COLOURS["pmt_x"],
+                marker="o", markersize=10, ls="none")
+    ax.errorbar(angle_axis, _get("pmt_occupancy", y_move),
+                yerr=_get("pmt_occupancy_err", y_move),
+                label="rel. DE: y-axis", color=COLOURS["pmt_y"],
+                marker="o", markersize=10, ls="none")
+
+    ax.set_xlabel("Zenith angle (deg)", fontsize=15)
+    ax.set_ylabel("Detection efficiency", fontsize=15)
+    ax.set_xticks(angle_axis)
+    ax.legend(fontsize=13)
+    ax.grid(True, alpha=0.3)
+    _style_axis(ax)
+    fig.tight_layout()
+    fig.savefig(outpath / f"pmt_occupancy.{fmt}", dpi=dpi)
+    plt.close(fig)
+
+    # ---- Plot 4: Transit time offset ----
+    fig, ax = plt.subplots(1, 1, figsize=(18, 7))
+
+    ax.plot([], [], ' ', label=f'PMT: {pmt_serial}') # Invisible plot for PMT serial
     ax.errorbar(angle_axis, _get("rel_transit_time", x_move),
                 yerr=_get("rel_transit_time_err", x_move),
                 label="x-axis", color=COLOURS["norm_x"],
@@ -318,9 +344,10 @@ def plot_cross_sections(summary_df: pd.DataFrame,
     fig.savefig(outpath / f"transit_time.{fmt}", dpi=dpi)
     plt.close(fig)
 
-    # ---- Plot 4: TTS (FWHM) ----
+    # ---- Plot 5: TTS (FWHM) ----
     fig, ax = plt.subplots(1, 1, figsize=(18, 7))
 
+    ax.plot([], [], ' ', label=f'PMT: {pmt_serial}') # Invisible plot for PMT serial
     ax.scatter(angle_axis, _get("pmt_tts_fwhm", x_move),
                label="x-axis", color=COLOURS["norm_x"], marker="x", s=100)
     ax.scatter(angle_axis, _get("pmt_tts_fwhm", y_move),
@@ -336,7 +363,7 @@ def plot_cross_sections(summary_df: pd.DataFrame,
     fig.savefig(outpath / f"tts_fwhm.{fmt}", dpi=dpi)
     plt.close(fig)
 
-    # ---- Plot 5: Monitor stability (if available) ----
+    # ---- Plot 6: Monitor stability (if available) ----
     if "rel_mon_yield" in summary_df.columns:
         fig, ax = plt.subplots(1, 1, figsize=(18, 7))
 

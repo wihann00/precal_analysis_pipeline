@@ -123,6 +123,7 @@ def main(config_path: str):
     # ---- Compute relative quantities -----------------------------------------
     logger.info("Computing relative quantities...")
     summary_df = compute_relative_quantities(
+        scan_data=scan_data,
         pmt_df=pmt_df,
         sipm_df=sipm_df,
         mon_df=mon_df,
