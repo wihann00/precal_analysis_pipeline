@@ -11,6 +11,26 @@ Custom probability density functions for zfit.
 import zfit
 from zfit import z
 import tensorflow
+import numpy as np
+
+def compute_chi2_ndf(model, data, size, nbins, xr, n_free_params):
+    """
+    Compute chi2/ndf from binned comparison of model to data.
+    
+    ndf = nbins (with events) - n_free_params
+    """
+    counts, bin_edges = np.histogram(
+        zfit.run(data.value()[:, 0]), bins=nbins, range=xr
+    )
+    bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
+    y_exp = model.pdf(bin_centers).numpy() * size / nbins * (xr[1] - xr[0])
+
+    # Only use bins with events (avoid division by zero)
+    mask = counts > 0
+    chi2 = np.sum((counts[mask] - y_exp[mask])**2 / counts[mask])
+    ndf = np.sum(mask) - n_free_params
+
+    return chi2, ndf
 
 
 class ExponentiallyModifiedGaussian(zfit.pdf.BasePDF):
