@@ -105,13 +105,14 @@ def main(config_path: str):
     # Fit plots are generated INSIDE run_timing_analysis (while zfit model
     # is in scope) when save_fit_plots is True — this ensures the model curve
     # and pull distribution are properly overlaid on the data.
-    logger.info("Running timing analysis...")
-    pmt_df, sipm_df, mon_df = run_timing_analysis(scan_data, loaded_coords, config)
+    if config["timing"]["enabled"]:
+        logger.info("Running timing analysis...")
+        pmt_df, sipm_df, mon_df = run_timing_analysis(scan_data, loaded_coords, config)
 
-    logger.info(f"PMT fits: {len(pmt_df)} points")
-    logger.info(f"SiPM fits: {len(sipm_df)} points")
-    if mon_df is not None:
-        logger.info(f"Monitor fits: {len(mon_df)} points")
+        logger.info(f"PMT fits: {len(pmt_df)} points")
+        logger.info(f"SiPM fits: {len(sipm_df)} points")
+        if mon_df is not None:
+            logger.info(f"Monitor fits: {len(mon_df)} points")
 
     # ---- Charge analysis (if enabled) ----------------------------------------
     charge_df = None

@@ -93,9 +93,10 @@ class FitPlotter:
             # print(str(frac))
             self.plot_model(mod, data, size, ax, scale=frac*extra_frac, model_name=model_name, plot_data=False, comp=True, nbins=nbins)
 
-    def plot_fit_and_pull(self, model, comp_models, model_names,
-                        data, data_np, inc_bkg, size, xr,
-                        fit_params, fwhm_val):
+    def plot_fit_and_pull(self, model, data, size, inc_bkg,
+                          model_names, fit_params, xr,
+                          x_label="Time (ns)", fit_type="timing",
+                          inc_log=False):
         """
         Generate fit plot with:
         - Data histogram with Poisson errors
@@ -104,73 +105,112 @@ class FitPlotter:
         - Pull distribution
         - Parameter text box
 
-        Called from inside fit_timing() while the model is alive.
+        Works for both timing and charge fits — caller passes
+        the appropriate fit_params dict, x_label, and fit_type.
+
+        Parameters
+        ----------
+        model : zfit model
+            The full fitted model (must still be in scope).
+        data : zfit Data
+            The zfit data object.
+        size : int
+            Total number of events.
+        inc_bkg : bool
+            Whether to decompose components via plot_comp_model.
+        model_names : list
+            Names for each component.
+        fit_params : dict
+            Parameters to display in the text box.
+            e.g. timing: {"mu": ..., "lambd": ..., "sigma": ..., "sig_yield": ..., "bkg_yield": ..., "FWHM": ...}
+            e.g. charge: {"mu_spe": ..., "sigma_spe": ..., "gain": ..., "spe_yield": ..., "ped_yield": ...}
+        xr : list
+            [lower, upper] fit range.
+        x_label : str
+            X-axis label ("Time (ns)" or "Charge (pC)").
+        fit_type : str
+            "timing" or "charge" — controls output subdirectory.
+        inc_log : bool
+            If True, save an additional log-scale version (useful for charge).
         """
         coord = self.coord
         theta, phi = coord
         nbins = self.nbins
-        fig, (ax1, ax2) = plt.subplots(2, 1, gridspec_kw={'height_ratios': [4, 1]}, figsize=(10, 10))
 
+        fig, (ax1, ax2) = plt.subplots(2, 1, gridspec_kw={'height_ratios': [4, 1]},
+                                        figsize=(10, 10))
+
+        # --- Component curves (dashed) + data ---
         if inc_bkg:
-            # self.plot_comp_model(sig_ext, data, size, ax1)
-            self.plot_comp_model(model, data, size, ax1, model_names=model_names, nbins=nbins)
+            self.plot_comp_model(model, data, size, ax1,
+                                 model_names=model_names, nbins=nbins)
         else:
-            self.plot_model(model, data, size, ax1, model_names=model_names, nbins=nbins)
-            # self.plot_comp_model(model, data, size, ax1)
-        
+            self.plot_model(model, data, size, ax1, nbins=nbins)
+
+        # --- Total model (solid) + data overlay ---
         self.plot_model(model, data, size, ax1, nbins=nbins)
 
-        # Main axis
-        ax1.set_ylabel(f'Events', loc='top', fontsize=12)
-        ax1.set_xlim([xr[0], xr[1]])
+        # --- Axis labels & limits ---
+        ax1.set_ylabel('Events', loc='top', fontsize=12)
+        ax1.set_xlim(xr)
         ax1.set_title(f"{self.channel} ({theta}, {phi})", fontsize=14)
 
-        textstr = '\n'.join((
-        r'$\mu=%.2f$' % (fit_params["mu"], ),
-        r'$\lambda=%.2f$' % (fit_params["lambd"], ),
-        r'$\sigma=%.2f$' % (fit_params["sigma"], ),
-        r'sig yield$=%.0f$' % (fit_params["sig_yield"], ),
-        r'bkg yield$=%.0f$' % (fit_params["bkg_yield"], ),
-        # r'bkg left$=%.2f$' % (bkg_in_left_window, ),
-        # r'bkg right$=%.2f$' % (bkg_in_right_window, ),
-        'FHWM=%.2f' % (fwhm_val, ))) #FWHM
+        # --- PMT serial in legend ---
+        ax1.plot([], [], ' ', label=f'PMT: {self.pmt_serial}')
+        ax1.legend(prop={'size': 14})
 
-        # these are matplotlib.patch.Patch properties
+        # --- Parameter text box (built from dict) ---
+        # textstr = '\n'.join(rf'${k}={v:.2f}$' if isinstance(v, float)
+        #                     else f'{k}={v}'
+        #                     for k, v in fit_params.items())
+        textstr = '\n'.join(rf'$\mathrm{{{k}}}={v}$' for k, v in fit_params.items())
+
         props = dict(boxstyle='round', facecolor='white', alpha=0.5)
+        ax1.text(0.66, 0.95, textstr, transform=ax1.transAxes, fontsize=20,
+                 verticalalignment='top', bbox=props)
 
-        # place a text box in upper left in axes coords
-        ax1.text(0.7, 0.95, textstr, transform=ax1.transAxes, fontsize=20,
-        verticalalignment='top', bbox=props)
-
-        # Pull axis
-        counts, bin_centers = self.hist_data(data)
+        # --- Pull distribution ---
+        counts, bin_centers = self.hist_data(data, nbins=nbins)
         y_obs = counts
         y_exp = model.pdf(bin_centers) * size / nbins * data.data_range.area()
 
-        resid = y_obs - y_exp
-        pull = resid/np.sqrt(counts)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            pull = np.where(counts > 0, (y_obs - y_exp) / np.sqrt(counts), 0)
 
-        ax2.plot(np.linspace(xr[0], xr[1], 500), np.zeros(500), '--', color='black')
+        ax2.axhline(0, ls='--', color='black')
         ax2.errorbar(bin_centers, pull, fmt='ok')
-        ax2.set_ylabel(f'Pull', fontsize=12)
-        ax2.set_xlim([xr[0], xr[1]])
-        # if (max(pull) < 5) and  (min(pull) > -5):
-        #     ax2.set_ylim([-5, 5])
-        #     ax2.set_yticks([-5, 0, 5])
+        ax2.set_ylabel('Pull', fontsize=12)
+        ax2.set_xlim(xr)
         ax2.set_ylim([-5, 5])
         ax2.set_yticks([-5, 0, 5])
-
-        plt.xlabel('Time (ns)', fontsize=20)
+        ax2.set_xlabel(x_label, fontsize=20)
 
         for ax in [ax1, ax2]:
-            for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] + 
-                        ax.get_xticklabels() + ax.get_yticklabels()):
+            for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                         ax.get_xticklabels() + ax.get_yticklabels()):
                 item.set_fontsize(20)
 
         fig.tight_layout()
-        outpath = Path(self.output_dir) / "figures" / "timing_fits" / f"{self.run_id}-{self.pmt_serial}" / self.channel
+
+        # Save to fit_type-specific subdirectory
+        if fit_type == "charge":
+            subdir = "charge_fits"
+        else:
+            subdir = "timing_fits"
+
+        outpath = (Path(self.output_dir) / "figures" / subdir /
+                   f"{self.run_id}-{self.pmt_serial}" / self.channel)
         outpath.mkdir(parents=True, exist_ok=True)
-        fig.savefig(outpath / f"{self.channel}_theta{theta}_phi{phi}.{self.fmt}", dpi=self.dpi)
+        fig.savefig(outpath / f"{self.channel}_theta{theta}_phi{phi}.{self.fmt}",
+                    dpi=self.dpi)
+
+        # Optional log-scale version for charge
+        if inc_log:
+            ax1.set_yscale('log')
+            ax1.set_ylim(1e0, 1e5)
+            fig.savefig(outpath / f"{self.channel}_theta{theta}_phi{phi}_log.{self.fmt}",
+                        dpi=self.dpi)
+
         plt.close(fig)
 
 
@@ -230,6 +270,13 @@ def plot_cross_sections(summary_df: pd.DataFrame,
     x_move, y_move, angle_axis = geometry.cross_section_indices()
     outpath = Path(output_dir) / "figures" / "cross_sections" / f"{run_id}-{pmt_serial}"
     _ensure_dir(outpath)
+
+    # Cross-sections require all scan points to be present
+    n_expected = geometry.n_points
+    if len(summary_df) < n_expected:
+        logger.warning(f"Skipping cross-section plots: only {len(summary_df)}/{n_expected} "
+                       f"scan points available")
+        return
 
     # Helper to safely index
     def _get(col, indices):
@@ -384,6 +431,31 @@ def plot_cross_sections(summary_df: pd.DataFrame,
         _style_axis(ax)
         fig.tight_layout()
         fig.savefig(outpath / f"monitor_stability.{fmt}", dpi=dpi)
+        plt.close(fig)
+
+    # ---- Plot 7: Relative Gain (if charge analysis available) ----
+    if "rel_gain" in summary_df.columns:
+        fig, ax = plt.subplots(1, 1, figsize=(18, 7))
+
+        ax.plot([], [], ' ', label=f'PMT: {pmt_serial}')
+        ax.errorbar(angle_axis, _get("gain", x_move),
+                    yerr=_get("mu_spe_err", x_move) / 1.602e-7,
+                    label="x-axis", color=COLOURS["norm_x"],
+                    marker="s", markersize=10, ls="none")
+        ax.errorbar(angle_axis, _get("gain", y_move),
+                    yerr=_get("mu_spe_err", y_move) / 1.602e-7,
+                    label="y-axis", color=COLOURS["norm_y"],
+                    marker="s", markersize=10, ls="none")
+
+        # ax.axhline(1, ls="--", color="grey", alpha=0.5)
+        ax.set_xlabel("Zenith angle (deg)", fontsize=15)
+        ax.set_ylabel("Relative Gain", fontsize=15)
+        ax.set_xticks(angle_axis)
+        ax.legend(fontsize=13)
+        ax.grid(True, alpha=0.3)
+        _style_axis(ax)
+        fig.tight_layout()
+        fig.savefig(outpath / f"gain.{fmt}", dpi=dpi)
         plt.close(fig)
 
 

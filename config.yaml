@@ -5,9 +5,9 @@
 # Then execute: python run_analysis.py --config config.yaml
 
 # --- Run identification -------------------------------------------------------
-run_id: "260227_132622"
+run_id: "260226_103257_charge"
 pmt_serial: EL5150-B
-data_dir: "/data/projects/punim0011/wihann/Deployment/data/rootfiles/260227_132622"
+data_dir: "/data/projects/punim0011/wihann/Deployment/data/rootfiles/260226_103257_charge"
 output_dir: "/data/projects/punim0011/wihann/Deployment/analysis/output"
 
 # --- Channel mapping ----------------------------------------------------------
@@ -25,8 +25,9 @@ scan:
 
 # --- Timing analysis ----------------------------------------------------------
 timing:
+  enabled: true
   pmt:
-    fit_range: [310, 330]       # ns window for PMT–laser timing distribution
+    fit_range: [301, 317]       # ns window for PMT–laser timing distribution
     include_background: true
     nbins: 50
   sipm:
@@ -39,13 +40,14 @@ timing:
 
 # --- Charge / Gain analysis ---------------------------------------------------
 charge:
-  enabled: false                # set true when pyrate supports simultaneous PulseStart + Charge
-  fit_range: [1.5, 5.0]        # pC
-  timing_cut: [300, 320]       # ns — only use events in this timing window
+  enabled: true                # set true when pyrate supports simultaneous PulseStart + Charge
+  fit_range: [-0.2, 3.0]        # pC
+  timing_cut: [0, 512]       # ns — only use events in this timing window
   npe: 2                       # number of photoelectron peaks to fit (1, 2, or 3)
   include_pedestal: true
-  include_underamplified: false
-  include_backscatter: false
+  include_underamplified: true
+  include_backscatter: true
+  include_log: true
   nbins: 50
 
 # --- Monitor PMT --------------------------------------------------------------

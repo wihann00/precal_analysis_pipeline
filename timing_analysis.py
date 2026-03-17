@@ -218,9 +218,14 @@ def fit_timing(coord, data_np, channel="PMT", pmt_serial="", xr=None,
 
         fitplotter = plotting.FitPlotter(coord, channel, pmt_serial, output_dir, run_id, nbins, fmt, dpi)
 
-        fitplotter.plot_fit_and_pull(model, comp_models, comp_names,
-                           data, data_np, include_background, size, xr,
-                           fit_params, tts_fwhm)
+        fit_params = {
+            "\mu": mu_val, "\lambda": lambd_val, "\sigma": sigma_val,
+            "sig yield": sig_yield_val, "bkg yield": bkg_yield_val,
+            "FWHM": tts_fwhm,
+        }
+        fitplotter.plot_fit_and_pull(model, data, size, include_background,
+                                    comp_names, fit_params, xr,
+                                    x_label="Time (ns)", fit_type="timing")
 
         fitplotter.plot_fwhm(model, data, size, tts_fwhm)
 

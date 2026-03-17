@@ -191,6 +191,9 @@ def compute_relative_quantities(scan_data: dict,
             "gain": gains,
             "rel_gain": rel_gain,
             "mu_spe": charge_df["mu_spe"].values,
+            "mu_spe_err": charge_df["mu_spe_err"].values,
+            "spe_yield": charge_df["spe_yield"].values,
+            "spe_yield_err": charge_df["spe_yield_err"].values,
         })
 
         out["_coord_str"] = out["coord"].astype(str)
