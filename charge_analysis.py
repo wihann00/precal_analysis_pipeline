@@ -289,8 +289,8 @@ def fit_charge(coord: Tuple[float, float],
                                           output_dir, run_id, nbins, fmt, dpi)
 
         fit_params = {
-            r"\mu_{SPE}": f"{mu1_val:.2f}",
-            r"\sigma_{SPE}": f"{sigma1_val:.2f}",
+            r"$\mu_{SPE}$": f"{mu1_val:.2f}",
+            r"$\sigma_{SPE}$": f"{sigma1_val:.2f}",
             "Gain": f"{gain:.2E}",
             "SPE yield": f"{spe_yield_val:.0f}",
             "Ped yield": f"{ped_yield:.0f}",
@@ -300,6 +300,7 @@ def fit_charge(coord: Tuple[float, float],
                                       model_names, fit_params, xr,
                                       x_label="Charge (pC)",
                                       fit_type="charge",
+                                      inc_ped=include_pedestal,
                                       inc_log=include_log)
 
     # Count free parameters

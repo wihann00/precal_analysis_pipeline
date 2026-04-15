@@ -5,9 +5,9 @@
 # Then execute: python run_analysis.py --config config.yaml
 
 # --- Run identification -------------------------------------------------------
-run_id: "260226_103257_charge"
+run_id: "260226_103257_2"
 pmt_serial: EL5150-B
-data_dir: "/data/projects/punim0011/wihann/Deployment/data/rootfiles/260226_103257_charge"
+data_dir: "/data/projects/punim0011/wihann/Deployment/data/rootfiles/260226_103257_charge1"
 output_dir: "/data/projects/punim0011/wihann/Deployment/analysis/output"
 
 # --- Channel mapping ----------------------------------------------------------
@@ -41,8 +41,8 @@ timing:
 # --- Charge / Gain analysis ---------------------------------------------------
 charge:
   enabled: true                # set true when pyrate supports simultaneous PulseStart + Charge
-  fit_range: [-0.2, 3.0]        # pC
-  timing_cut: [0, 512]       # ns — only use events in this timing window
+  fit_range: [-0.2, 5.0]        # pC
+  timing_cut: [160, 190]       # ns — only use events in this timing window
   npe: 2                       # number of photoelectron peaks to fit (1, 2, or 3)
   include_pedestal: true
   include_underamplified: true
