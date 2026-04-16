@@ -212,10 +212,10 @@ def fit_timing(coord, data_np, channel="PMT", pmt_serial="", xr=None,
 
     # --- Plots (while model is alive!) ---------------------------------------
     if make_plot:
-        fit_params = {
-            "mu": mu_val, "lambd": lambd_val, "sigma": sigma_val,
-            "sig_yield": sig_yield_val, "bkg_yield": bkg_yield_val,
-        }
+#        fit_params = {
+#            "mu": mu_val, "lambd": lambd_val, "sigma": sigma_val,
+#            "sig_yield": sig_yield_val, "bkg_yield": bkg_yield_val,
+#        }
 
         fitplotter = plotting.FitPlotter(coord, channel, pmt_serial, output_dir, run_id, nbins, fmt, dpi)
 

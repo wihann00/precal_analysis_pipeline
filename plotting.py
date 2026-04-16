@@ -262,6 +262,7 @@ def plot_cross_sections(summary_df: pd.DataFrame,
                         pmt_serial: str = "",
                         output_dir: str = ".",
                         run_id: str = "",
+                        eff_range: list[float]=[0.2, 1.5],
                         fmt: str = "png",
                         dpi: int = 150):
     """
@@ -311,10 +312,10 @@ def plot_cross_sections(summary_df: pd.DataFrame,
                 yerr=_get("rel_sipm_yield_err", y_move),
                 label="SiPM: y-axis", color=COLOURS["sipm_y"],
                 marker="s", markersize=8, ls="none")
-
     ax.axhline(1, ls="--", color="grey", alpha=0.5)
     ax.set_xlabel("Zenith angle (deg)", fontsize=15)
     ax.set_ylabel("Relative signal yield", fontsize=15)
+    ax.set_ylim(eff_range)
     ax.set_xticks(angle_axis)
     ax.legend(fontsize=13)
     ax.grid(True, alpha=0.3)
@@ -339,6 +340,7 @@ def plot_cross_sections(summary_df: pd.DataFrame,
     ax.axhline(1, ls="--", color="grey", alpha=0.5)
     ax.set_xlabel("Zenith angle (deg)", fontsize=15)
     ax.set_ylabel("Corrected relative detection efficiency", fontsize=15)
+    ax.set_ylim(eff_range)
     ax.set_xticks(angle_axis)
     ax.legend(fontsize=13)
     ax.grid(True, alpha=0.3)
@@ -471,6 +473,7 @@ def plot_heatmaps(summary_df: pd.DataFrame,
                   pmt_serial: str = "",
                   output_dir: str = ".",
                   run_id: str = "",
+                  eff_range: list[float]=[0.2, 1.5],
                   fmt: str = "png",
                   dpi: int = 150):
     """
@@ -520,7 +523,7 @@ def plot_heatmaps(summary_df: pd.DataFrame,
 
         cmap = mpl.colormaps[colormap]
         if col=="corrected_rel_efficiency" or col=="rel_pmt_yield":
-            norm = mpl.colors.Normalize(vmin=0.2, vmax=1.5)
+            norm = mpl.colors.Normalize(vmin=eff_range[0], vmax=eff_range[1])
         else:
             norm = mpl.colors.Normalize(vmin=np.nanmin(values), vmax=np.nanmax(values))
 
@@ -588,7 +591,7 @@ def plot_heatmaps(summary_df: pd.DataFrame,
                 if len(row) > 0 and len(col_idx) > 0:
                     grid[row[0], col_idx[0]] = values[i]
 
-        im = ax.imshow(grid, cmap=cmap, aspect="auto",
+        im = ax.imshow(grid, cmap=cmap, aspect="auto", vmin=eff_range[0], vmax=eff_range[1],
                         extent=[-0.5, len(azimuth_vals) - 0.5,
                                 len(zenith_vals) - 0.5, -0.5])
         ax.set_xticks(range(len(azimuth_vals)))

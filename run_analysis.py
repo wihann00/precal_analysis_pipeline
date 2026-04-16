@@ -132,16 +132,20 @@ def main(config_path: str):
     )
 
     # ---- Generate cross-section and heatmap plots ----------------------------
+    eff_range = plot_cfg.get("eff_range")
+    if eff_range is None:
+        eff_range = [0.2, 1.5] # default efficiency range if not given in config file
+
     if plot_cfg["save_cross_sections"]:
         logger.info("Generating cross-section plots...")
         plot_cross_sections(summary_df, geometry, pmt_serial,
-                            output_dir=output_dir, run_id=run_id,
+                            output_dir=output_dir, run_id=run_id, eff_range=eff_range,
                             fmt=plot_cfg["figure_format"], dpi=plot_cfg["dpi"])
 
     if plot_cfg["save_heatmap"]:
         logger.info("Generating heatmaps...")
         plot_heatmaps(summary_df, geometry, pmt_serial,
-                       output_dir=output_dir, run_id=run_id,
+                       output_dir=output_dir, run_id=run_id, eff_range=eff_range,
                        fmt=plot_cfg["figure_format"], dpi=plot_cfg["dpi"])
 
     # Parameter summary plot
