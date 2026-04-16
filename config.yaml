@@ -60,5 +60,6 @@ plotting:
   save_fit_plots: true
   save_cross_sections: true
   save_heatmap: true
+  eff_range: [0.7, 1.3]         # adjustable range for relative efficiency and pmt yield plots
   figure_format: "png"
   dpi: 150
