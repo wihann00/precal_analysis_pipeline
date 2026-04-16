@@ -96,7 +96,7 @@ class FitPlotter:
     def plot_fit_and_pull(self, model, data, size, inc_bkg,
                           model_names, fit_params, xr,
                           x_label="Time (ns)", fit_type="timing",
-                          inc_log=False):
+                          inc_ped=True, inc_log=False):
         """
         Generate fit plot with:
         - Data histogram with Poisson errors
@@ -137,6 +137,8 @@ class FitPlotter:
         theta, phi = coord
         nbins = self.nbins
 
+        counts, bin_centers = self.hist_data(data, nbins=nbins)
+
         fig, (ax1, ax2) = plt.subplots(2, 1, gridspec_kw={'height_ratios': [4, 1]},
                                         figsize=(10, 10))
 
@@ -153,6 +155,8 @@ class FitPlotter:
         # --- Axis labels & limits ---
         ax1.set_ylabel('Events', loc='top', fontsize=12)
         ax1.set_xlim(xr)
+        if fit_type=="charge" and inc_ped:
+            ax1.set_ylim(0, max(counts)*1/2)
         ax1.set_title(f"{self.channel} ({theta}, {phi})", fontsize=14)
 
         # --- PMT serial in legend ---
@@ -160,17 +164,16 @@ class FitPlotter:
         ax1.legend(prop={'size': 14})
 
         # --- Parameter text box (built from dict) ---
-        # textstr = '\n'.join(rf'${k}={v:.2f}$' if isinstance(v, float)
-        #                     else f'{k}={v}'
-        #                     for k, v in fit_params.items())
-        textstr = '\n'.join(rf'$\mathrm{{{k}}}={v}$' for k, v in fit_params.items())
+        textstr = '\n'.join(rf'${k}={v:.2f}$' if isinstance(v, float)
+                            else f'{k}={v}'
+                            for k, v in fit_params.items())
+        # textstr = '\n'.join(rf'$\mathrm{{{k}}}={v}$' for k, v in fit_params.items())
 
         props = dict(boxstyle='round', facecolor='white', alpha=0.5)
         ax1.text(0.66, 0.95, textstr, transform=ax1.transAxes, fontsize=20,
                  verticalalignment='top', bbox=props)
 
         # --- Pull distribution ---
-        counts, bin_centers = self.hist_data(data, nbins=nbins)
         y_obs = counts
         y_exp = model.pdf(bin_centers) * size / nbins * data.data_range.area()
 

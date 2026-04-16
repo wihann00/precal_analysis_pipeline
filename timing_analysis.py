@@ -146,7 +146,8 @@ def fit_timing(coord, data_np, channel="PMT", pmt_serial="", xr=None,
         chebyshev = zfit.pdf.Chebyshev(obs=obs, coeffs=coeffs)
         bkg_yield_param = zfit.Parameter(f"bkg_yield_{label}", bkg_yield_naive,
                                          bkg_yield_naive * 0.005,
-                                         bkg_yield_naive * 3, step_size=1)
+                                         bkg_yield_naive * 5, step_size=1)
+                                        #  bkg_yield_naive * 3, step_size=1)
         bkg_ext = chebyshev.create_extended(bkg_yield_param)
         model = zfit.pdf.SumPDF([emg_ext, bkg_ext])
         comp_models.append(bkg_ext)
@@ -218,13 +219,18 @@ def fit_timing(coord, data_np, channel="PMT", pmt_serial="", xr=None,
 
         fitplotter = plotting.FitPlotter(coord, channel, pmt_serial, output_dir, run_id, nbins, fmt, dpi)
 
+        # fit_params = {
+        #     "\mu": mu_val, "\lambda": lambd_val, "\sigma": sigma_val,
+        #     "sig yield": sig_yield_val, "bkg yield": bkg_yield_val,
+        #     "FWHM": tts_fwhm,
+        # }
         fit_params = {
-                r"\mu": f"{mu_val:.2f}", 
-                r"\lambda": f"{lambd_val:.2f}", 
-                r"\sigma": f"{sigma_val:.2f}",
-                "sig yield": f"{sig_yield_val:.0f}", 
-                "bkg yield": f"{bkg_yield_val:.0f}",
-                "FWHM": f"{tts_fwhm:.2f}",
+            r"$\mu$": f"{mu_val:.2f}",
+            r"$\lambda$": f"{lambd_val:.2f}",
+            r"$\sigma$": f"{sigma_val:.2f}",
+            "FWHM": f"{tts_fwhm:.2f}",
+            "sig yield": f"{sig_yield_val:.0f}",
+            "bkg yield": f"{bkg_yield_val:.0f}",
         }
         fitplotter.plot_fit_and_pull(model, data, size, include_background,
                                     comp_names, fit_params, xr,
